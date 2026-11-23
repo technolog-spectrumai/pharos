@@ -16,7 +16,7 @@ name = "enigma_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # One edition: no optional features. Chat (iroh and Tor), file transfer,
-# invitations, PIN unlock and Privacy HP are always built in.
+# invitations and PIN unlock are always built in.
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 # build_config.yaml → generated consts (see build.rs). Build-time only: the

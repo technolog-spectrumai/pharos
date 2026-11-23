@@ -5,9 +5,6 @@
 // avatar, a copy field, an empty state and a section header. They began in
 // enigma's rakotis; the apps import them from here (Enigma and Vesper included).
 //
-// Only the Privacy HP meter and price stay in rakotis: they import enigma's
-// price table.
-//
 // OyaQrCode lazy-imports `qrcode`, which this package declares, so any app
 // that lists petalite as a workspace gets it installed.
 //

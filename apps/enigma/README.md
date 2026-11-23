@@ -13,8 +13,6 @@ at rest** behind a passphrase.
   servers, no discovery service), or peer-hosted **Tor** onion services with an
   auto-elected relaying captain. Tor is what sets Enigma apart from Vesper.
 - **Files** — P2P file transfer, verified chunk by chunk.
-- **Privacy HP** — a budget that puts one comparable price beside every
-  exposing action, so the cost of a choice is visible before the tap.
 - **One edition** — chat and files. Voice calls, the DHT (room codes, nicknames,
   presence), contacts and the calendar are Vesper's (see
   [Removed features](#removed-features)).

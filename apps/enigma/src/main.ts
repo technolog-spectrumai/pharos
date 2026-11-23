@@ -7,8 +7,7 @@ import "./style.css";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
-import { setHpTranslator } from "./components/hp/useHp";
-import { initBuildConfig, initHpPolicy, setChatTranslator } from "rakotis";
+import { initBuildConfig, setChatTranslator } from "rakotis";
 import { brand, policy } from "./config/app";
 
 import { library } from "@fortawesome/fontawesome-svg-core";
@@ -104,11 +103,7 @@ import {
   faPen,
   faPencil,
   faFolder,
-  faChevronRight,
-  faChevronDown,
   faChevronUp,
-  faScaleBalanced,
-  faClockRotateLeft,
   faKey,
   faArrowRight,
   faRotateLeft,
@@ -242,11 +237,7 @@ library.add(
   faPen,
   faPencil,
   faFolder,
-  faChevronRight,
-  faChevronDown,
   faChevronUp,
-  faScaleBalanced,
-  faClockRotateLeft,
   faKey,
   faArrowRight,
   faRotateLeft,
@@ -297,20 +288,12 @@ const app = createApp(App)
 
 installVueErrorHandler(app);
 
-// Privacy HP labels read through the app's catalog. Injected rather than
-// imported by the HP modules themselves, so that charging HP never drags the
-// message catalog into the composer, the file-share composable or vox.
 // Chat notices emitted from inside rakotis read through the same catalog
 // (packages/rakotis/src/i18n/chatText.ts). Injected rather than imported, for the
 // reason given there: a library should not carry the app's message catalog.
 setChatTranslator((key, params) =>
   String((i18n.global.t as (k: string, p?: Record<string, unknown>) => string)(key, params ?? {})),
 );
-
-setHpTranslator({
-  t: (key: string) => String((i18n.global.t as (k: string) => string)(key)),
-  has: (key: string) => Boolean((i18n.global.te as (k: string) => boolean)(key)),
-});
 
 // Fetch the compile-time build config (allow flags, setting clamps) before
 // mount so every component sees final values; in the browser the app-config
@@ -325,11 +308,6 @@ void initBuildConfig({
     min: 0,
     max: 100 * 1024,
   },
-})
-  // The Privacy HP price table, fetched the same way and for the same reason:
-  // every badge in the app renders from it, so it has to be final before the
-  // first frame. In the browser the mirror in rakotis stands in.
-  .then(() => initHpPolicy())
-  .then(() => {
-    app.mount("#app");
-  });
+}).then(() => {
+  app.mount("#app");
+});

@@ -1,21 +1,16 @@
 <script setup lang="ts">
-// The welcome page: what this app is, who you are on it, and what your privacy
-// budget currently looks like. Reached by tapping the Enigma27 mark in the top
-// left — that mark used to go to "/", which is also where every lock cycle
+// The welcome page: what this app is and who you are on it. Reached by tapping
+// the Enigma27 mark in the top left — that mark used to go to "/", which is also where every lock cycle
 // re-enters, so the two were rewired apart: `/` still lands on your first visible
 // tab after an unlock, and only a deliberate tap on the logo comes here.
 //
 // It is not a splash screen. Nothing gates on it, nothing is dismissed, and it
 // keeps no state — it reads the same sources everything else does.
 import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
 import { getBuildConfig, getOfflineProfile, getRuntimeConfig, type AppRuntimeConfig, type OfflineProfile } from "rakotis";
 import { OyaAvatar, OyaCard } from "petalite/primitives";
 import { brand } from "../config/app";
-import HpPanel from "../components/hp/HpPanel.vue";
-import { PRIVACY_PATH } from "../tabs";
 
-const router = useRouter();
 const cfg = getBuildConfig();
 
 const profile = ref<OfflineProfile | null>(null);
@@ -69,22 +64,6 @@ onMounted(async () => {
           </span>
         </div>
       </div>
-    </OyaCard>
-
-    <!-- ── your budget ──────────────────────────────────────────────────── -->
-    <OyaCard class="flex flex-col gap-4">
-      <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="text-sm font-bold uppercase opacity-70">{{ $t("hp.title") }}</h2>
-        <button
-          type="button"
-          class="text-xs font-semibold underline opacity-70 transition hover:opacity-100"
-          data-testid="welcome-hp-details"
-          @click="router.push(PRIVACY_PATH)"
-        >
-          {{ $t("hp.seeDetails") }}
-        </button>
-      </div>
-      <HpPanel compact />
     </OyaCard>
   </section>
 </template>

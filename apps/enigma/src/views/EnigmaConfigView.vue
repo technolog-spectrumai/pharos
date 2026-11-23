@@ -10,15 +10,6 @@ import { policy } from "../config/app";
 import { applyIdleLockMins, applyLockOnHide } from "../idleLock";
 import { availableTabs, isTabVisible, setTabVisible, type AppTabId } from "../tabs";
 import {
-  chargeHp,
-  confirmHp,
-  explainFor,
-  hpBalances,
-  priceFor,
-  recordTorPosture,
-  recoverHp,
-} from "../components/hp/useHp";
-import {
   clearOfflineProfile,
   getProfileState,
   getRuntimeConfig,
@@ -54,12 +45,6 @@ import { OyaCard } from "petalite/primitives";
 import { OyaButton } from "petalite/primitives";
 import { OyaCopyField, OyaModal, OyaQrCode, OyaTextField } from "petalite/primitives";
 import { useChatStore } from "../stores/chat";
-import { OyaHpPrice, formatHp } from "rakotis";
-
-// Price badges show what the NEXT tap would cost, so they flip with the switch —
-// which is what "show the price on the setting" has to mean for a toggle. A
-// direction that costs nothing renders no badge rather than a "−0 HP".
-const hpExplain = (id: string) => explainFor(id);
 
 defineProps<{ darkMode: boolean }>();
 
@@ -122,13 +107,7 @@ async function toggleOffline() {
 // Exclusive with iroh: toggling tears down the other transport in Rust, so the
 // shown NodeId (iroh) / onion refreshes on the next room command.
 async function toggleUseTor() {
-  const next = !useTor.value;
-  await network.setUseTor(next);
-  // Privacy HP: the switch itself costs and earns NOTHING. What it changes is
-  // the regeneration rate — every hour with Tor on returns HP three times
-  // faster. Recording the posture is what lets that be counted from here on
-  // without re-scoring the hours already behind it.
-  await recordTorPosture(next);
+  await network.setUseTor(!useTor.value);
 }
 
 // ── Keep onion stable (encrypted-at-rest HS key) ─────────────────────────────
@@ -136,10 +115,6 @@ const stableOnion = ref(false);
 async function toggleStableOnion() {
   stableOnion.value = !stableOnion.value;
   await setStableOnion(stableOnion.value);
-  // Only the ON direction is an exposure (one long-lived address makes sessions
-  // linkable). Switching back is free but earns nothing: the old address was
-  // already published to whoever saw it.
-  if (stableOnion.value) await chargeHp("transport.onion_stable.enable");
 }
 
 // ── Connection timeout (room create + join give up after this many seconds) ───
@@ -168,7 +143,6 @@ async function saveFileChunk() {
 async function toggleFileIntegrity() {
   fileIntegrity.value = !fileIntegrity.value;
   await setFileIntegrity(fileIntegrity.value);
-  if (!fileIntegrity.value) await chargeHp("local.file_integrity.off");
 }
 
 async function saveMaxFileSize() {
@@ -224,17 +198,8 @@ const idleLockSaved = ref(false);
 const locking = ref(false);
 
 async function saveIdleLock() {
-  const wasOff = idleLockMins.value === 0;
-  // 0 = never auto-lock, which leaves the DEK live in memory indefinitely. The
-  // charge follows the STATE, not the edit: changing 15 to 30 is neither an
-  // exposure nor a recovery and must move nothing.
-  if (Number(idleLockMins.value) === 0 && !wasOff && !(await confirmHp("local.autolock.off"))) {
-    return;
-  }
   idleLockMins.value = await setIdleLockMins(Number(idleLockMins.value));
   applyIdleLockMins(idleLockMins.value);
-  if (idleLockMins.value === 0) await chargeHp("local.autolock.off");
-  else await recoverHp("local.autolock.on");
   idleLockSaved.value = true;
   setTimeout(() => { idleLockSaved.value = false; }, 1500);
 }
@@ -252,7 +217,6 @@ async function toggleLockOnHide() {
     await setLockOnHide(next);
     lockOnHide.value = next;
     applyLockOnHide(next);
-    if (!next) await chargeHp("local.lock_on_hide.off");
   } finally {
     lockOnHideBusy.value = false;
   }
@@ -346,9 +310,6 @@ async function submitPin() {
     );
     pinEnrolled.value = true;
     showPinModal.value = false;
-    // The PIN is a memory-only convenience layer over the passphrase, so it is a
-    // small, real reduction rather than an exposure (technology.md §7).
-    await chargeHp("local.pin.enroll");
   } catch (e) {
     pinError.value = (e as Error)?.message ?? String(e);
   }
@@ -387,9 +348,6 @@ async function removePanic() {
   panicBusy.value = true;
   try {
     await vaultClearPanicCode(panicCurrent.value);
-    // Not an exposure — a loss of protection under coercion, which is why it is
-    // priced low rather than high.
-    await chargeHp("local.panic_code.clear");
     panicArmed.value = false;
     panicDone.value = t("config.panicCodeRemoved");
     setTimeout(() => { showPanic.value = false; }, 1200);
@@ -721,13 +679,6 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.fileIntegrity') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.fileIntegrityHint') }}</p>
-          <OyaHpPrice
-            v-if="fileIntegrity ? priceFor('local.file_integrity.off') : 0 !== 0"
-            class="mt-1"
-            :centi="fileIntegrity ? priceFor('local.file_integrity.off') : 0"
-            :explain="hpExplain('local.file_integrity.off')"
-            data-testid="hp-badge-integrity"
-          />
         </div>
         <button
           type="button"
@@ -774,21 +725,6 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ useTor ? $t('config.useTorOnHint') : $t('config.useTorOffHint') }}
           </p>
-
-          <!-- Not a price: Tor is free to switch. The badge advertises the
-               regeneration bonus, which is what actually changes. -->
-          <span
-            class="mt-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-bold"
-            :class="useTor
-              ? 'border-success-light/50 text-success-light dark:border-success-dark/50 dark:text-success-dark'
-              : 'border-current/25 opacity-70'"
-            data-testid="hp-badge-tor"
-          >
-            <font-awesome-icon icon="shield-halved" />
-            {{ useTor
-              ? $t('hp.torRateActive', { n: formatHp(hpBalances.daily.regenPerHourCenti) })
-              : $t('hp.torRateOffer', { n: formatHp(hpBalances.daily.torRegenPerHourCenti) }) }}
-          </span>
         </div>
         <button
           type="button"
@@ -820,13 +756,6 @@ async function clearSelectedOfflineData() {
           <p class="text-xs opacity-60">
             {{ stableOnion ? $t('config.stableOnionOnHint') : $t('config.stableOnionOffHint') }}
           </p>
-          <OyaHpPrice
-            v-if="stableOnion ? 0 : priceFor('transport.onion_stable.enable') !== 0"
-            class="mt-1"
-            :centi="stableOnion ? 0 : priceFor('transport.onion_stable.enable')"
-            :explain="hpExplain('transport.onion_stable.enable')"
-            data-testid="hp-badge-stable-onion"
-          />
         </div>
         <button
           type="button"
@@ -901,15 +830,6 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.idleLock') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.idleLockOff') }}</p>
-          <!-- Priced by the STATE the number produces, not by the edit: 0 means
-               "never auto-lock", which leaves the key in memory indefinitely. -->
-          <OyaHpPrice
-            v-if="Number(idleLockMins) === 0"
-            class="mt-1"
-            :centi="priceFor('local.autolock.off')"
-            :explain="hpExplain('local.autolock.off')"
-            data-testid="hp-badge-autolock"
-          />
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
@@ -937,13 +857,6 @@ async function clearSelectedOfflineData() {
         <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold">{{ $t('config.lockOnHide') }}</p>
           <p class="text-xs opacity-60">{{ $t('config.lockOnHideHint') }}</p>
-          <OyaHpPrice
-            v-if="lockOnHide ? priceFor('local.lock_on_hide.off') : 0 !== 0"
-            class="mt-1"
-            :centi="lockOnHide ? priceFor('local.lock_on_hide.off') : 0"
-            :explain="hpExplain('local.lock_on_hide.off')"
-            data-testid="hp-badge-lock-on-hide"
-          />
         </div>
         <button
           type="button"

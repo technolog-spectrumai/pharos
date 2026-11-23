@@ -9,10 +9,8 @@
 // English literals, so a Polish user met them in English at exactly the moments
 // that matter.
 //
-// The seam is the one `setHpTranslator` already established for Privacy HP
-// labels, and for the same reason: emitting a notice should not drag the whole
-// message catalog into the module that emits it. One precedent, applied twice,
-// rather than two mechanisms doing the same job differently.
+// The seam is a registered translator: emitting a notice should not drag the
+// whole message catalog into the module that emits it.
 //
 // ── the fallback, and the rule it softens ───────────────────────────────────
 //

@@ -1935,9 +1935,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
    *  all local data for the room — MLS group state, the persisted entry, and (Tor) the
    *  onion identity — and close its connections. Kicking peers only reaches them while
    *  we are connected to the room with MLS ready (i.e. deleting the open room). */
-  /** Returns the bytes of stored history that went away, so the caller can claim
-   *  the Privacy HP data-deletion credit. 0 when there was nothing stored. */
-  async function deleteRoom(entry: P2pRoomEntry): Promise<number> {
+  async function deleteRoom(entry: P2pRoomEntry): Promise<void> {
     const slug = entry.room;
     const identity = mlsIdentity.value;
     const isCurrent = currentRoom.value?.slug === slug;
@@ -1948,18 +1946,14 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     // Wipe local data (MLS state, saved entry, stored timeline).
     await cryptoService.clearState(slug, identity).catch(() => {});
     if (entry.tor) chatTransport.forgetTorOnion(entry.name); // stops the service + drops the key
-    let freed = 0;
     if (!headless) {
       logAppender.drop(slug);
-      // Awaited now (it used to be fire-and-forget) so the byte count is real
-      // rather than a guess; the wipe was already ordered before this line.
-      freed = await wipeLog(slug).catch(() => 0);
+      await wipeLog(slug).catch(() => {});
     }
     forgetP2pRoom(slug);
     // Close connections / reset the view.
     if (isCurrent) clearLocalChatState(t("chat.sys.roomDeleted", "Room deleted."));
     else chatTransport.leaveRoom(slug); // stop hosting/dialing a non-open room
-    return freed;
   }
 
   /** A room's host broadcast `room_closed` — tear down + wipe it on our side, per the

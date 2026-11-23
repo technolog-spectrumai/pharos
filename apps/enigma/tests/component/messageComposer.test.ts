@@ -1,15 +1,8 @@
-// The message composer: what it lets you send, when, and what each send costs.
+// The message composer: what it lets you send, and when.
 //
 // The composer is the one place a user types something that leaves the device,
 // so its gates matter more than its looks: nothing may go out before the room's
-// MLS session is ready, nothing while a captain has muted you, and an attachment
-// is billed by its size because on a clearnet lane a 4 MiB voice note is a far
-// more distinctive event than a line of text. The rate chip above it is the one
-// price in the app that moves under you, and it has to follow the live Tor and
-// MLS state rather than a value sampled at mount.
-//
-// Runs in Tauri mode against the IPC hook, so every Privacy HP charge reaches a
-// fake backend and the test can read exactly what was billed.
+// MLS session is ready, and nothing while a captain has muted you.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
@@ -21,27 +14,14 @@ import type { ChatChannel } from "rakotis";
 let store: any;
 vi.mock("../../src/stores/chat", () => ({ useChatStore: () => store }));
 
-// The REAL Tauri API, faked at its IPC hook (see contactsView.test.ts for why
-// not vi.mock). Loading it up front keeps its first dynamic import, which every
-// charge goes through, out of the first test's timing.
-import "@tauri-apps/api/core";
 import { i18n } from "../../src/i18n";
 import MessageComposer from "../../src/components/chat/MessageComposer.vue";
 import VoiceRecorderButton from "../../src/components/chat/VoiceRecorderButton.vue";
 import EmojiPicker from "../../src/components/chat/EmojiPicker.vue";
-import { useNetworkStore } from "../../src/stores/network";
-import { stopHp } from "../../src/components/hp/useHp";
 
 (i18n.global.locale as any).value = "en";
 
-const invokeMock = vi.fn(async (cmd: string, args?: Record<string, unknown>): Promise<unknown> => {
-  if (cmd === "hp_ledger") return [];
-  if (cmd === "hp_charge") return { applied: -2, code: args?.actionId };
-  return null;
-});
-const charges = () => invokeMock.mock.calls.filter((c) => c[0] === "hp_charge").map((c) => c[1]);
-
-// A charge is several promise hops away from the click (the composer does not
+// A send is several promise hops away from the click (the composer does not
 // await its own send on Enter), so one flush is not always enough to see it land.
 async function settle() {
   for (let i = 0; i < 10; i++) await flushPromises();
@@ -87,51 +67,16 @@ async function pickImage(w: ReturnType<typeof mount>, file: File | null) {
 }
 
 beforeEach(() => {
-  invokeMock.mockClear();
   createObjectURL.mockClear();
   revokeObjectURL.mockClear();
   Object.assign(URL, { createObjectURL, revokeObjectURL });
-  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
-    invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
-  };
   pinia = createPinia();
   setActivePinia(pinia);
   store = {};
-  stopHp();
 });
 
 afterEach(() => {
   vi.useRealTimers();
-});
-
-// ── the rate chip ───────────────────────────────────────────────────────────
-
-describe("MessageComposer — the per-message rate", () => {
-  it("prices the clearnet MLS lane per message", () => {
-    const { w } = mountComposer();
-    expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.02 HP/msg");
-    expect(w.find('[data-testid="hp-msg-free"]').exists()).toBe(false);
-  });
-
-  it("drops to Free the moment the room is MLS over Tor", async () => {
-    const { w } = mountComposer();
-    useNetworkStore().useTor = true;
-    await settle();
-    expect(w.get('[data-testid="hp-msg-free"]').text()).toBe("Free");
-    expect(w.find('[data-testid="hp-msg-rate"]').exists()).toBe(false);
-  });
-
-  it("charges the cleartext fallback while MLS is still coming up", async () => {
-    // Before MLS reports ready a send falls back to a cleartext frame; the chip
-    // has to say so rather than keep showing the sealed lane's price.
-    const ch = makeChannel();
-    ch.mlsStatus.value = "key_exchange";
-    const { w } = mountComposer(ch);
-    expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.25 HP/msg");
-    useNetworkStore().useTor = true;
-    await settle();
-    expect(w.get('[data-testid="hp-msg-rate"]').text()).toContain("−0.05 HP/msg");
-  });
 });
 
 // ── what the box says, and when it is open ──────────────────────────────────
@@ -203,7 +148,7 @@ describe("MessageComposer — placeholder and gates", () => {
 // ── sending text ────────────────────────────────────────────────────────────
 
 describe("MessageComposer — sending text", () => {
-  it("sends the trimmed text on Enter, clears the box and bills the text's bytes", async () => {
+  it("sends the trimmed text on Enter and clears the box", async () => {
     const { w, ch } = mountComposer();
     await textarea(w).setValue("  hello  ");
     await textarea(w).trigger("keydown", { key: "Enter" });
@@ -211,25 +156,6 @@ describe("MessageComposer — sending text", () => {
 
     expect(ch.sendMessage).toHaveBeenCalledWith("hello");
     expect((textarea(w).element as HTMLTextAreaElement).value).toBe("");
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 5, minutes: null }]);
-  });
-
-  it("counts bytes, not characters, when billing", async () => {
-    const { w } = mountComposer();
-    await textarea(w).setValue("żółw");
-    await sendButton(w).trigger("click");
-    await settle();
-    // Four characters, seven bytes of UTF-8.
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 7, minutes: null }]);
-  });
-
-  it("bills the lane the room is on at the moment of sending", async () => {
-    const { w } = mountComposer();
-    useNetworkStore().useTor = true;
-    await textarea(w).setValue("over tor");
-    await sendButton(w).trigger("click");
-    await settle();
-    expect(charges()).toEqual([{ actionId: "msg.tor.mls", bytes: 8, minutes: null }]);
   });
 
   it("treats Shift+Enter as a new line, not a send", async () => {
@@ -238,7 +164,6 @@ describe("MessageComposer — sending text", () => {
     await textarea(w).trigger("keydown", { key: "Enter", shiftKey: true });
     await settle();
     expect(ch.sendMessage).not.toHaveBeenCalled();
-    expect(charges()).toEqual([]);
   });
 
   it("refuses a blank message", async () => {
@@ -311,7 +236,7 @@ describe("MessageComposer — attachments", () => {
     expect(w.text()).not.toContain("Image ready to send");
   });
 
-  it("sends the image with live progress, then bills its size and frees the preview", async () => {
+  it("sends the image with live progress, then frees the preview", async () => {
     const ch = makeChannel();
     let finish!: () => void;
     let report!: (pct: number) => void;
@@ -342,12 +267,11 @@ describe("MessageComposer — attachments", () => {
     finish();
     await settle();
     expect(w.text()).not.toContain("Sending…");
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 1500, minutes: null }]);
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
     expect(ch.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("sends the attachment first and the caption after, billing each", async () => {
+  it("sends the attachment first and the caption after", async () => {
     const { w, ch } = mountComposer();
     await pickImage(w, photo());
     await textarea(w).setValue("look");
@@ -356,13 +280,9 @@ describe("MessageComposer — attachments", () => {
 
     expect(ch.sendImage.mock.invocationCallOrder[0]).toBeLessThan(ch.sendMessage.mock.invocationCallOrder[0]);
     expect(ch.sendMessage).toHaveBeenCalledWith("look");
-    expect(charges()).toEqual([
-      { actionId: "msg.clearnet.mls", bytes: 1500, minutes: null },
-      { actionId: "msg.clearnet.mls", bytes: 4, minutes: null },
-    ]);
   });
 
-  it("keeps the caption and bills nothing when the upload fails", async () => {
+  it("keeps the caption when the upload fails", async () => {
     const ch = makeChannel();
     ch.sendImage.mockRejectedValue(new Error("relay gone"));
     const errors: unknown[] = [];
@@ -377,7 +297,6 @@ describe("MessageComposer — attachments", () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(1);
     expect(ch.sendMessage).not.toHaveBeenCalled();
     expect((textarea(w).element as HTMLTextAreaElement).value).toBe("caption");
-    expect(charges()).toEqual([]);
   });
 
   it("frees the staged image when the preview is cancelled", async () => {
@@ -400,7 +319,7 @@ describe("MessageComposer — attachments", () => {
     expect(w.text()).not.toContain("cat.png");
   });
 
-  it("stages a recorded voice note and sends it as audio, billed by size", async () => {
+  it("stages a recorded voice note and sends it as audio", async () => {
     const { w, ch } = mountComposer();
     const blob = new Blob([new Uint8Array(3000)], { type: "audio/webm" });
     w.findComponent(VoiceRecorderButton).vm.$emit("staged", blob, "Voice message · 0:03");
@@ -413,7 +332,6 @@ describe("MessageComposer — attachments", () => {
     await settle();
     expect(ch.sendAudio).toHaveBeenCalledWith(blob);
     expect(ch.sendImage).not.toHaveBeenCalled();
-    expect(charges()).toEqual([{ actionId: "msg.clearnet.mls", bytes: 3000, minutes: null }]);
   });
 
   it("frees a staged attachment when the composer goes away", async () => {

@@ -15,8 +15,7 @@
 // the expiry, and once the grant finally names a room, `mls_adopt_session` moves
 // that session across — carrying the private init key the Welcome needs.
 
-import { bytesToBase64, cryptoService, roomActionId, type ChatChannel } from "rakotis";
-import { chargeHp } from "../hp/useHp";
+import { bytesToBase64, cryptoService, type ChatChannel } from "rakotis";
 
 export interface InvitePeek {
   kind: string;
@@ -107,9 +106,6 @@ export async function redeemInvitation(
     if (!(await channel.joinByInvite(grant, scratch))) {
       return { ok: false, errorKey: "invite.errAdmitFailed", peek };
     }
-    // Redeeming IS joining a room, and is charged as one — a second price for the
-    // same event would break the ladder's ordering.
-    await chargeHp(roomActionId("join", !!grant.onion));
     return { ok: true, errorKey: "", peek };
   } catch (e) {
     const raw = typeof e === "string" ? e : ((e as Error).message ?? "");

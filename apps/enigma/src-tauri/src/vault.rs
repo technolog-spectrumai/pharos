@@ -575,7 +575,6 @@ mod watchdog_tests {
 
 #[tauri::command]
 pub fn vault_change_passphrase(
-    app: AppHandle,
     vault: State<ProtasiusState>,
     current: String,
     new: String,
@@ -586,10 +585,6 @@ pub fn vault_change_passphrase(
         .map_err(|e| e.to_string())?
         .change_passphrase(&current, &new)
         .map_err(e)?;
-    // Privacy HP credit, awarded only after the change actually succeeded.
-    // Lengths only — whether it got longer is the entire question, and the
-    // passphrases themselves go no further than the line above.
-    crate::privacy_hp::award_passphrase_change(&app, current.chars().count(), new.chars().count());
     Ok(())
 }
 

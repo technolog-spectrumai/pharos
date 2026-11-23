@@ -3,13 +3,11 @@ import { nextTick, ref } from "vue";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
 // The shared P2P rooms controller (useP2pRooms) beyond its connect windows,
-// which torConnect.test.ts covers: creating a room and what it is billed as,
-// the room-info and delete flows and their Privacy HP credits, what the join
-// field refuses, and joining from an uploaded QR image.
+// which torConnect.test.ts covers: creating a room, the room-info and delete
+// flows, what the join field refuses, and joining from an uploaded QR image.
 //
-// The HP charges are the reason this runs in Tauri mode against the IPC hook:
-// a room that fell back to clearnet must be priced as one, and a delete earns
-// a data credit only for history that actually went.
+// It runs in Tauri mode against the IPC hook, so a join's invitation peek and
+// redemption go through the same backend calls the app makes.
 
 const { qr } = vi.hoisted(() => ({
   qr: { decoded: "" as string | null, clears: 0, clearFails: false, regions: [] as string[] },
@@ -41,7 +39,6 @@ const callsTo = (cmd: string) => invokeMock.mock.calls.filter((c) => c[0] === cm
 
 import "@tauri-apps/api/core";
 import { useP2pRooms } from "../../src/components/chat/useP2pRooms";
-import { stopHp } from "../../src/components/hp/useHp";
 
 /** base32 of [0x4E, …] — an invitation, the only thing the join field takes. */
 const INVITE = "jybucrq";
@@ -56,7 +53,7 @@ function makeChannel() {
     createRoom: vi.fn<(name: string) => Promise<string | null>>(async () => null),
     joinByInvite: vi.fn(async () => true),
     cancelJoin: vi.fn(async () => {}),
-    deleteRoom: vi.fn<(room: P2pRoomEntry) => Promise<number>>(async () => 0),
+    deleteRoom: vi.fn<(room: P2pRoomEntry) => Promise<void>>(async () => {}),
   };
 }
 type Channel = ReturnType<typeof makeChannel>;
@@ -80,10 +77,6 @@ beforeEach(() => {
   Object.assign(qr, { decoded: "", clears: 0, clearFails: false, regions: [] });
   handlers = {
     kv_get: () => null,
-    hp_ledger: () => [],
-    hp_charge: (a) => ({ applied: -100, code: a.actionId }),
-    hp_recover: (a) => ({ applied: 150, code: a.recoveryId }),
-    hp_data_credit: (a) => ({ applied: 50, code: a.sourceId }),
     invite_peek: () => ({ kind: "general", inviter: "alice", expiresAt: Date.now() + 6e5, tor: false }),
     mls_init_session: () => true,
     mls_key_package: () => [1, 2, 3],
@@ -92,7 +85,6 @@ beforeEach(() => {
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
     invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
   };
-  stopHp();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -119,26 +111,13 @@ describe("useP2pRooms — creating a room", () => {
     expect(ctrl.createError.value).toBe("");
   });
 
-  it("prices the room by the transport it actually came up on", async () => {
-    // The Tor setting says what was asked for; the saved entry says what the
-    // transport produced. A room that fell back to clearnet is priced as one.
+  it("falls back to the typed name when the room has no saved entry", async () => {
     const ch = makeChannel();
-    ch.createRoom.mockImplementation(async () => {
-      ch.p2pRooms.value = [{ room: "slug-t", name: "Onion", tor: true }];
-      return "slug-t";
-    });
-    const ctrl = controller(ch);
-    ctrl.name.value = "Onion";
-    await ctrl.createRoom();
-    await flush();
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "room.create.tor", bytes: null, minutes: null }]);
-
     ch.createRoom.mockImplementation(async () => "slug-c");
+    const ctrl = controller(ch);
     ctrl.name.value = "Plain";
     await ctrl.createRoom();
     await flush();
-    expect(callsTo("hp_charge")[1]).toEqual({ actionId: "room.create.clearnet", bytes: null, minutes: null });
-    // With no saved entry to read a name from, the typed name stands in.
     expect(ctrl.createdRoom.value).toEqual({ slug: "slug-c", name: "Plain" });
   });
 
@@ -166,7 +145,7 @@ describe("useP2pRooms — creating a room", () => {
     await first;
   });
 
-  it("shows the channel's own reason when no room came back, and charges nothing", async () => {
+  it("shows the channel's own reason when no room came back", async () => {
     const ch = makeChannel();
     ch.createRoom.mockImplementation(async () => {
       ch.error.value = "TOR_BOOTSTRAP_FAILED";
@@ -178,7 +157,6 @@ describe("useP2pRooms — creating a room", () => {
     await flush();
     expect(ctrl.createError.value).toBe("TOR_BOOTSTRAP_FAILED");
     expect(ctrl.createBusy.value).toBe(false);
-    expect(callsTo("hp_charge")).toHaveLength(0);
   });
 
   it("falls back to the launch-failed message when nothing says why", async () => {
@@ -218,9 +196,8 @@ describe("useP2pRooms — room info and delete", () => {
     expect(ctrl.infoRoom.value).toEqual(room);
   });
 
-  it("deletes the confirmed room and earns credits for the history freed and for leaving", async () => {
+  it("deletes the confirmed room and closes the confirmation", async () => {
     const ch = makeChannel();
-    ch.deleteRoom.mockResolvedValue(4096);
     const ctrl = controller(ch);
     ctrl.openDeleteConfirm(room);
     expect(ctrl.deleteOpen.value).toBe(true);
@@ -228,26 +205,12 @@ describe("useP2pRooms — room info and delete", () => {
     await flush();
 
     expect(ch.deleteRoom).toHaveBeenCalledWith(room);
-    expect(callsTo("hp_data_credit")).toEqual([{ sourceId: "data.delete.chat", bytesFreed: 4096 }]);
-    expect(callsTo("hp_recover")).toEqual([{ recoveryId: "room.leave" }]);
     expect(ctrl.deleteOpen.value).toBe(false);
     expect(ctrl.deleteRoomEntry.value).toBeNull();
     expect(ctrl.deleteBusy.value).toBe(false);
   });
 
-  it("pays no data credit for a room that had no stored history", async () => {
-    // Leaving still counts; deleting nothing does not.
-    const ch = makeChannel();
-    ch.deleteRoom.mockResolvedValue(0);
-    const ctrl = controller(ch);
-    ctrl.openDeleteConfirm(room);
-    await ctrl.confirmDelete();
-    await flush();
-    expect(callsTo("hp_data_credit")).toHaveLength(0);
-    expect(callsTo("hp_recover")).toEqual([{ recoveryId: "room.leave" }]);
-  });
-
-  it("keeps the confirmation open, and credits nothing, when the delete fails", async () => {
+  it("keeps the confirmation open when the delete fails", async () => {
     const ch = makeChannel();
     ch.deleteRoom.mockRejectedValue(new Error("busy"));
     const ctrl = controller(ch);
@@ -257,19 +220,18 @@ describe("useP2pRooms — room info and delete", () => {
     expect(ctrl.deleteOpen.value).toBe(true);
     expect(ctrl.deleteRoomEntry.value).toEqual(room);
     expect(ctrl.deleteBusy.value).toBe(false);
-    expect(callsTo("hp_recover")).toHaveLength(0);
   });
 
   it("deletes once however often Delete is pressed", async () => {
     const ch = makeChannel();
-    let finish!: (n: number) => void;
+    let finish!: () => void;
     ch.deleteRoom.mockImplementation(() => new Promise((r) => (finish = r)));
     const ctrl = controller(ch);
     ctrl.openDeleteConfirm(room);
     const first = ctrl.confirmDelete();
     await ctrl.confirmDelete();
     expect(ch.deleteRoom).toHaveBeenCalledTimes(1);
-    finish(0);
+    finish();
     await first;
   });
 

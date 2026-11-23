@@ -478,18 +478,16 @@ describe("the host closing the room", () => {
 });
 
 describe("deleting a room", () => {
-  it("closes an open room we host for everyone, wipes it, and reports the bytes freed", async () => {
+  it("closes an open room we host for everyone and wipes it", async () => {
     const ch = await readyRoom("alice", ["alice", "bob"]);
-    await ch.sendMessage("history worth a credit");
+    await ch.sendMessage("history to wipe");
     await vi.advanceTimersByTimeAsync(1000);
     await vi.waitFor(async () => expect(await loadLog(ROOM)).toHaveLength(1));
-    const storedBytes = (await kvGet("chat:log", ROOM, "seg-0"))!.length;
     mockTransport.send.mockClear();
 
-    const freed = await ch.deleteRoom(entry(ch)!);
+    await ch.deleteRoom(entry(ch)!);
     expect(sentInner("room_closed")).toEqual([{ type: "room_closed", device_id: "alice" }]);
     expect(crypto.clearState).toHaveBeenLastCalledWith(ROOM, "alice");
-    expect(freed).toBe(storedBytes);
     expect(await loadLog(ROOM)).toEqual([]);
     expect(ch.p2pRooms.value).toEqual([]);
     expect(ch.currentRoom.value).toBeNull();
@@ -498,7 +496,7 @@ describe("deleting a room", () => {
 
   it("sends an ordinary leave for a room we only joined", async () => {
     const ch = await readyRoom("alice", ["alice", "bob"]);
-    expect(await ch.deleteRoom({ ...entry(ch)!, host: false })).toBe(0);
+    await ch.deleteRoom({ ...entry(ch)!, host: false });
     expect(sentInner("leave")).toEqual([{ type: "leave", device_id: "alice" }]);
     expect(sentInner("room_closed")).toEqual([]);
   });
@@ -510,7 +508,7 @@ describe("deleting a room", () => {
     await create(ch, ROOM);
     const other = entry(ch, "room-2")!;
 
-    expect(await ch.deleteRoom(other)).toBe(0);
+    await ch.deleteRoom(other);
     expect(mockTransport.send).not.toHaveBeenCalled();
     expect(crypto.clearState).toHaveBeenCalledWith("room-2", "alice");
     expect(mockTransport.forgetTorOnion).toHaveBeenCalledWith("Room Two");

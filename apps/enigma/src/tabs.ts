@@ -59,13 +59,6 @@ export const APP_TABS: readonly AppTab[] = [
  *  fallback of every redirect below. */
 export const SETTINGS_PATH = "/config";
 
-/** Privacy HP (technology.md §17). Like Settings and the welcome page it is a
- *  route reached from the app chrome rather than a nav tab: the header's HP chip
- *  is its one entrance, and a nav entry beside it would be a second door to the
- *  same room. Absent from `APP_TABS` for that reason, so it has no nav link and
- *  no visibility checkbox. */
-export const PRIVACY_PATH = "/privacy";
-
 // Ids only (not AppTabId): an id written by a NEWER build is meaningless here
 // but must survive a round-trip rather than being silently un-hidden.
 const hiddenTabs = ref<ReadonlySet<string>>(new Set());

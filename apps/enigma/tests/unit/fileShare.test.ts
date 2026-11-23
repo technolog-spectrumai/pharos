@@ -1,7 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ref } from "vue";
 import { useFileShare } from "../../src/components/chat/useFileShare";
-import { hpConfirm, refreshHp, resolveHpConfirm, stopHp } from "../../src/components/hp/useHp";
 import type { ChatChannel } from "rakotis";
 
 // useFileShare orchestrates the offer/accept signaling over the channel's MLS
@@ -340,9 +339,6 @@ describe("useFileShare — max file size guard (Settings)", () => {
 // are busy. Each of those must leave the other transfer untouched.
 
 describe("useFileShare — host side, edges", () => {
-  // The HP meter is module state; never let a drained one leak into a later test.
-  afterEach(() => stopHp());
-
   function hosting() {
     const ctx = makeChannel();
     const share = useFileShare(ctx.channel);
@@ -359,34 +355,6 @@ describe("useFileShare — host side, edges", () => {
     expect(share.error.value).toBe("File sharing is desktop-only.");
     expect(openMock).not.toHaveBeenCalled();
     expect(stub.sendSync).not.toHaveBeenCalled();
-  });
-
-  it("bills the transfer once the offer is on the wire, by the file's size", async () => {
-    const { share } = hosting();
-    await share.offer({ id: "bob-device", name: "bob" });
-    expect(invokeMock).toHaveBeenCalledWith("hp_charge", { actionId: "file.send", bytes: 4096, minutes: null });
-  });
-
-  it("withdraws the registered file and sends nothing when the user declines the price", async () => {
-    // confirmHp only asks when a meter is already empty; drain it, then say no.
-    const { share, stub } = hosting();
-    invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "file_offer_create") return OFFER_META;
-      if (cmd === "hp_ledger") return [{ ts: Date.now(), kind: "spend", code: "x", hp: -1_000_000, n: 1, bucket: 0 }];
-      return undefined;
-    });
-    await refreshHp();
-    const pending = share.offer({ id: "bob-device", name: "bob" });
-    for (let i = 0; i < 10 && !hpConfirm.value; i++) await flush();
-    expect(hpConfirm.value).not.toBeNull();
-    resolveHpConfirm(false);
-    await pending;
-    await flush();
-
-    expect(invokeMock).toHaveBeenCalledWith("file_offer_cancel", { offerId: "offer-1" });
-    expect(stub.sendSync).not.toHaveBeenCalled();
-    expect(share.state.value).toBe("idle");
-    expect(invokeMock).not.toHaveBeenCalledWith("hp_charge", expect.anything());
   });
 
   it("reports a backend failure while registering the file", async () => {

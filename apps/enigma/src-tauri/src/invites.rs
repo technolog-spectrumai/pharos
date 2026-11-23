@@ -18,8 +18,7 @@
 //!
 //! `vault::get/put` under ns `invites` — the protasius **internal** tag. The
 //! `kv_*` commands the webview can call use a different AAD tag and a different
-//! record space, so JS can neither read invite state nor forge it. Same boundary
-//! the Privacy HP ledger uses (technology.md §17).
+//! record space, so JS can neither read invite state nor forge it.
 //!
 //! ## The capability is stored, not just its hash
 //!
@@ -49,7 +48,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
-use crate::invite_ticket::{InviteKind, CAPABILITY_LEN, INVITE_ID_LEN};
+use crate::invite_ticket::{CAPABILITY_LEN, INVITE_ID_LEN};
 use crate::vault;
 
 const NS: &str = "invites";
@@ -177,10 +176,8 @@ impl std::fmt::Display for RedeemError {
 /// `expires_at == 0` means NEVER — the one invitation that does not run out.
 ///
 /// Only a Tor invitation may carry it (`invite_api::mint` refuses it otherwise):
-/// a `.onion` is hard enough to come by that a standing invitation is a risk the
-/// budget can price rather than forbid. It is not free — `privacy_hp` charges for
-/// every hour one stays outstanding, and a drained daily meter closes the room it
-/// belongs to. Zero rather than `u64::MAX` because zero is what an older record
+/// a `.onion` is hard enough to come by that a standing invitation is an
+/// acceptable risk there. Zero rather than `u64::MAX` because zero is what an older record
 /// deserializing without the field would produce, and "never" is the wrong default
 /// to inherit silently; every read of this field goes through the helper below so
 /// there is one place that decides.
@@ -333,8 +330,7 @@ pub fn insert(app: &AppHandle, rec: InviteRecord) -> Result<(), String> {
 
 /// Withdraw an invitation. Idempotent, and it wins over an in-flight lease: the
 /// user asked for it to stop, so a redemption already in the air does not get to
-/// finish. Returns whether the record moved (so the caller knows whether a
-/// Privacy HP recovery is owed).
+/// finish. Returns whether the record moved.
 pub fn revoke(app: &AppHandle, id: &str) -> Result<bool, String> {
     let _guard = STORE_LOCK.lock();
     let mut records = load(app);
@@ -421,20 +417,10 @@ pub fn get(app: &AppHandle, id: &str) -> Option<InviteRecord> {
     load(app).into_iter().find(|r| r.id == id)
 }
 
-/// Is any bearer invitation still live? Drives the Privacy HP recovery pairing —
-/// revoking earns only while something revocable is actually outstanding.
-pub fn has_live_general(app: &AppHandle) -> bool {
-    let now = now_ms();
-    let _guard = STORE_LOCK.lock();
-    load(app).iter().any(|r| {
-        r.kind == InviteKind::General.as_str()
-            && matches!(effective_state(r, now), EffectiveState::Active | EffectiveState::InFlight)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::invite_ticket::InviteKind;
 
     const CAP: [u8; CAPABILITY_LEN] = [0xABu8; CAPABILITY_LEN];
     const ID: [u8; INVITE_ID_LEN] = [0x11u8; INVITE_ID_LEN];

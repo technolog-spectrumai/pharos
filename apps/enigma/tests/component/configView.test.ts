@@ -1,10 +1,8 @@
 // Settings, tab by tab, against the real rakotis settings layer in Tauri mode.
 //
 // Almost every control here is a privacy or safety decision, so what is pinned
-// is what reaches Rust: the stored value after clamping, the Privacy HP charge
-// or credit a switch triggers (and that it fires only in the costly direction),
-// the confirm that stands in front of the expensive ones, and the vault
-// commands with their exact arguments. tabVisibility.test.ts already covers the
+// is what reaches Rust: the stored value after clamping, and the vault commands
+// with their exact arguments. tabVisibility.test.ts already covers the
 // Tabs card; it mounts this view in browser mode.
 //
 // The backend is an in-memory kv plus whatever command a test needs, behind the
@@ -35,7 +33,6 @@ vi.mock("../../src/stores/chat", () => ({
 import "@tauri-apps/api/core";
 import { i18n, setLocale } from "../../src/i18n";
 import EnigmaConfigView from "../../src/views/EnigmaConfigView.vue";
-import { hpConfirm, resolveHpConfirm, setHpTranslator, stopHp } from "../../src/components/hp/useHp";
 
 (i18n.global.locale as any).value = "en";
 
@@ -86,10 +83,6 @@ function defaultHandlers(): Record<string, Handler> {
     tor_clean_keystore: () => null,
     vault_has_panic_code: () => false,
     vault_pin_status: () => ({ enrolled: false, digits: 6, attemptsLeft: 5 }),
-    hp_ledger: () => [],
-    hp_charge: ({ actionId }) => ({ applied: -100, code: actionId }),
-    hp_recover: ({ recoveryId }) => ({ applied: 100, code: recoveryId }),
-    hp_set_tor_posture: () => true,
   };
 }
 
@@ -117,11 +110,6 @@ beforeEach(async () => {
     invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
   };
   setActivePinia(createPinia());
-  stopHp();
-  setHpTranslator({
-    t: (k) => String((i18n.global.t as (x: string) => string)(k)),
-    has: (k) => Boolean((i18n.global.te as (x: string) => boolean)(k)),
-  });
   await router.replace("/config");
 });
 
@@ -287,30 +275,25 @@ describe("my code", () => {
 });
 
 describe("file integrity", () => {
-  it("prices switching verification off, and charges only that direction", async () => {
+  it("stores verification off and back on", async () => {
     const w = await mountAt();
     const toggle = switchFor(w, "Verify transferred files");
     expect(toggle.attributes("aria-checked")).toBe("true");
-    expect(w.get('[data-testid="hp-badge-integrity"]').text()).toContain("−0.5 HP");
 
     await toggle.trigger("click");
     await settle();
     expect(setting("file_integrity")).toBe("off");
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "local.file_integrity.off", bytes: null, minutes: null }]);
-    // Off already: the next tap restores protection, which costs nothing.
-    expect(w.find('[data-testid="hp-badge-integrity"]').exists()).toBe(false);
 
     await toggle.trigger("click");
     await settle();
     expect(setting("file_integrity")).toBe("on");
-    expect(callsTo("hp_charge")).toHaveLength(1);
   });
 });
 
 // ── Connections tab ─────────────────────────────────────────────────────────
 
 describe("Tor", () => {
-  it("switching Tor on routes through Rust, records the posture, and swaps the cards", async () => {
+  it("switching Tor on routes through Rust and swaps the cards", async () => {
     const w = await mountAt("connections");
     expect(w.text()).not.toContain("Keep onion address stable");
 
@@ -318,30 +301,21 @@ describe("Tor", () => {
     await settle();
 
     expect(callsTo("app_set_use_tor")).toEqual([{ useTor: true }]);
-    // Not a charge: the switch changes how fast HP comes back, from here on.
-    expect(callsTo("hp_set_tor_posture")).toEqual([{ on: true }]);
-    expect(callsTo("hp_charge")).toHaveLength(0);
     expect(w.text()).toContain("Keep onion address stable");
-    expect(w.get('[data-testid="hp-badge-tor"]').text()).toContain("Regenerating");
   });
 
-  it("charges for a stable onion only when it is switched on", async () => {
+  it("stores the stable-onion switch in both directions", async () => {
     network.useTor = true;
     const w = await mountAt("connections");
-    expect(w.get('[data-testid="hp-badge-stable-onion"]').text()).toContain("−1.5 HP");
 
     const toggle = switchFor(w, "Keep onion address stable");
     await toggle.trigger("click");
     await settle();
     expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }]);
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "transport.onion_stable.enable", bytes: null, minutes: null }]);
 
     await toggle.trigger("click");
     await settle();
     expect(callsTo("app_set_stable_onion")).toEqual([{ stableOnion: true }, { stableOnion: false }]);
-    // Switching back earns nothing: the old address was already seen.
-    expect(callsTo("hp_charge")).toHaveLength(1);
-    expect(callsTo("hp_recover")).toHaveLength(0);
   });
 });
 
@@ -357,46 +331,30 @@ describe("connection timeout", () => {
 // ── Lock tab ────────────────────────────────────────────────────────────────
 
 describe("auto-lock", () => {
-  it("changing the minutes is stored and charges nothing", async () => {
+  it("stores the changed minutes", async () => {
     const w = await mountAt("lock");
     await enter(w, "Auto-lock", 30);
-
     expect(setting("idle_lock_mins")).toBe("30");
-    expect(callsTo("hp_charge")).toHaveLength(0);
-    // Rust decides whether a recovery is owed; an edit between two non-zero
-    // values never is, so only the request goes out.
-    expect(callsTo("hp_recover")).toEqual([{ recoveryId: "local.autolock.on" }]);
   });
 
-  it("prices 'never lock' on the field itself", async () => {
-    seed("idle_lock_mins", "0");
-    const w = await mountAt("lock");
-    expect(w.get('[data-testid="hp-badge-autolock"]').text()).toContain("−5 HP");
-  });
-
-  it("re-saving an already-off auto-lock does not ask again", async () => {
-    seed("idle_lock_mins", "0");
+  it("stores 0 as never locking", async () => {
     const w = await mountAt("lock");
     await enter(w, "Auto-lock", 0);
-    expect(hpConfirm.value).toBeNull();
     expect(setting("idle_lock_mins")).toBe("0");
   });
 });
 
 describe("lock when hidden", () => {
-  it("charges for switching it off, not on", async () => {
+  it("stores the switch on and back off", async () => {
     const w = await mountAt("lock");
     const toggle = switchFor(w, "Lock when hidden");
     await toggle.trigger("click");
     await settle();
     expect(setting("lock_on_hide")).toBe("1");
-    expect(callsTo("hp_charge")).toHaveLength(0);
-    expect(w.get('[data-testid="hp-badge-lock-on-hide"]').text()).toContain("−0.5 HP");
 
     await toggle.trigger("click");
     await settle();
     expect(setting("lock_on_hide")).toBe("0");
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "local.lock_on_hide.off", bytes: null, minutes: null }]);
   });
 });
 
@@ -463,7 +421,7 @@ describe("reset passphrase", () => {
 });
 
 describe("PIN unlock", () => {
-  it("enrols a PIN with the passphrase as proof, and charges the enrolment", async () => {
+  it("enrols a PIN with the passphrase as proof", async () => {
     handlers.vault_pin_enroll = () => null;
     const w = await mountAt("lock");
     expect(w.get('[data-testid="pin-card"]').text()).toContain("No PIN");
@@ -480,7 +438,6 @@ describe("PIN unlock", () => {
     expect(callsTo("vault_pin_enroll")).toEqual([
       { passphrase: "my-passphrase", pin: "123456", panicPin: undefined, panicCode: undefined },
     ]);
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "local.pin.enroll", bytes: null, minutes: null }]);
     expect(w.get('[data-testid="pin-card"]').text()).toContain("A PIN is set for this session.");
     expect(w.find('[data-testid="pin-input"]').exists()).toBe(false);
   });
@@ -504,7 +461,7 @@ describe("PIN unlock", () => {
     ]);
   });
 
-  it("shows Rust's refusal and keeps the dialog open, uncharged", async () => {
+  it("shows Rust's refusal and keeps the dialog open", async () => {
     handlers.vault_pin_enroll = () => {
       throw "panic PIN must differ from the PIN in at least two digits";
     };
@@ -516,7 +473,6 @@ describe("PIN unlock", () => {
 
     expect(w.get('[data-testid="pin-error"]').text()).toBe("panic PIN must differ from the PIN in at least two digits");
     expect(w.find('[data-testid="pin-input"]').exists()).toBe(true);
-    expect(callsTo("hp_charge")).toHaveLength(0);
   });
 
   it("removes an enrolled PIN", async () => {
@@ -606,7 +562,7 @@ describe("panic code", () => {
     expect(w.text()).toContain("No panic code set.");
   });
 
-  it("removes an armed code with the passphrase alone, and charges the loss of protection", async () => {
+  it("removes an armed code with the passphrase alone", async () => {
     handlers.vault_clear_panic_code = () => null;
     const { w, current } = await open(true);
     await current.setValue("my-passphrase");
@@ -614,12 +570,11 @@ describe("panic code", () => {
     await settle();
 
     expect(callsTo("vault_clear_panic_code")).toEqual([{ current: "my-passphrase" }]);
-    expect(callsTo("hp_charge")).toEqual([{ actionId: "local.panic_code.clear", bytes: null, minutes: null }]);
     expect(w.text()).toContain("Panic code removed.");
     expect(w.text()).toContain("No panic code set.");
   });
 
-  it("a refused removal leaves the code armed and charges nothing", async () => {
+  it("a refused removal leaves the code armed", async () => {
     handlers.vault_clear_panic_code = () => {
       throw "wrong passphrase";
     };
@@ -630,7 +585,6 @@ describe("panic code", () => {
 
     expect(w.text()).toContain("Wrong passphrase.");
     expect(w.text()).toContain("A panic code is set.");
-    expect(callsTo("hp_charge")).toHaveLength(0);
   });
 });
 

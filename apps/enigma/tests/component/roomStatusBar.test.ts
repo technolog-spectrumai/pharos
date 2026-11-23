@@ -1,32 +1,22 @@
 // The room's status strip and the phone drawer: join / leave, the encryption
 // and connection chips, and the reset-encryption control.
 //
-// Two things are pinned beyond "the button calls the channel". A reset earns the
-// room.rekey Privacy HP recovery, and only AFTER the keys were actually
-// renegotiated — crediting first would pay for a reset that then failed. And
-// join/leave go inert while their call is in flight and come back even when it
-// throws, so a failed leave never leaves a dead button behind.
+// Pinned beyond "the button calls the channel": join/leave go inert while their
+// call is in flight and come back even when it throws, so a failed leave never
+// leaves a dead button behind.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { ref } from "vue";
 import type { ChatChannel } from "rakotis";
-import "@tauri-apps/api/core";
 import { i18n } from "../../src/i18n";
 import RoomStatusBar from "../../src/components/chat/RoomStatusBar.vue";
 import MobileRoomsDrawer from "../../src/components/chat/MobileRoomsDrawer.vue";
 import RoomsSidebar from "../../src/components/chat/RoomsSidebar.vue";
 import ParticipantsPanel from "../../src/components/chat/ParticipantsPanel.vue";
-import { stopHp } from "../../src/components/hp/useHp";
 import type { P2pRoomsController } from "../../src/components/chat/useP2pRooms";
 
 (i18n.global.locale as any).value = "en";
-
-const invokeMock = vi.fn(async (cmd: string, args?: Record<string, unknown>): Promise<unknown> => {
-  if (cmd === "hp_ledger") return [];
-  if (cmd === "hp_recover") return { applied: 150, code: args?.recoveryId };
-  return null;
-});
 
 interface Deferred {
   promise: Promise<void>;
@@ -83,11 +73,6 @@ async function settle() {
 
 beforeEach(() => {
   handled = [];
-  invokeMock.mockClear();
-  (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
-    invoke: (cmd: string, args: Record<string, unknown>) => invokeMock(cmd, args),
-  };
-  stopHp();
 });
 
 // ── status bar ──────────────────────────────────────────────────────────────
@@ -159,26 +144,20 @@ describe("RoomStatusBar — a participant", () => {
     expect(resetButton(w).classes()).toContain("text-highlight");
   });
 
-  it("resets the session and only then claims the rekey recovery", async () => {
+  it("resets the session", async () => {
     const { w, ch } = mountBar();
     await resetButton(w).trigger("click");
     await settle();
-
     expect(ch.forceResetMls).toHaveBeenCalledTimes(1);
-    const recover = invokeMock.mock.calls.filter((c) => c[0] === "hp_recover");
-    expect(recover.map((c) => c[1])).toEqual([{ recoveryId: "room.rekey" }]);
-    const recoverOrder = invokeMock.mock.invocationCallOrder[invokeMock.mock.calls.findIndex((c) => c[0] === "hp_recover")];
-    expect(ch.forceResetMls.mock.invocationCallOrder[0]).toBeLessThan(recoverOrder);
   });
 
-  it("claims nothing when the reset itself fails", async () => {
+  it("surfaces a failed reset", async () => {
     const ch = makeChannel();
     ch.forceResetMls.mockRejectedValue(new Error("MLS busy"));
     const { w } = mountBar(ch);
     await resetButton(w).trigger("click");
     await settle();
     expect((handled[0] as Error).message).toBe("MLS busy");
-    expect(invokeMock.mock.calls.some((c) => c[0] === "hp_recover")).toBe(false);
   });
 
   it("leaves from the full-size button", async () => {

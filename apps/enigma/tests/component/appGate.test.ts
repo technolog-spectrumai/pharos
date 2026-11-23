@@ -2,7 +2,7 @@
 // once it opens.
 //
 // Nothing behind the gate may load before the vault is unlocked — the tab
-// choice, the HP ledger and the profile all live in the encrypted store — so
+// choice and the profile both live in the encrypted store — so
 // these tests pin which gate a given vault state shows, what each form sends to
 // Rust, how a failure is reported, and that the shell (and only the shell)
 // appears once unlocking succeeds. tabVisibility.test.ts and scrolling.test.ts
@@ -38,7 +38,6 @@ vi.mock("../../src/stores/chat", () => ({ useChatStore: () => chatStore }));
 import "@tauri-apps/api/core";
 import App from "../../src/App.vue";
 import { i18n } from "../../src/i18n";
-import { stopHp } from "../../src/components/hp/useHp";
 
 (i18n.global.locale as any).value = "en";
 
@@ -64,8 +63,6 @@ function backend(vault: { exists: boolean; unlocked: boolean }): Record<string, 
       kv.set(kvKey(a), String(a.v));
     },
     app_get_use_tor: () => false,
-    hp_set_tor_posture: () => false,
-    hp_ledger: () => [],
     app_get_profile_state: () => ({
       offline_profile: {
         display_name: "Ala",
@@ -103,8 +100,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  // The HP meter tick is module-level; stop it so it does not outlive the test.
-  stopHp();
   vi.useRealTimers();
 });
 

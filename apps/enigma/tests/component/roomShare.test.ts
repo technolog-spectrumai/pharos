@@ -6,7 +6,7 @@
 //
 // What these pin is mostly *honesty of presentation*. The card is where a user
 // decides how much of themselves to hand out, so each mode has to state its
-// consequence and its price before the tap, and the bearer mode has to say
+// consequence before the tap, and the bearer mode has to say
 // plainly that it is not secret.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -17,9 +17,7 @@ const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invokeMock(...a) }));
 
 import { i18n } from "../../src/i18n";
-import { resetHpLedgerForTest } from "rakotis";
 import RoomShareCard from "../../src/components/chat/RoomShareCard.vue";
-import { refreshHp, resolveHpConfirm, setHpTranslator, stopHp } from "../../src/components/hp/useHp";
 
 const global = { plugins: [i18n], stubs: { "font-awesome-icon": true } };
 
@@ -30,20 +28,13 @@ function card(props: Record<string, unknown> = {}) {
   });
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks();
   // The card reads its invitation list through Tauri; without this it is in
   // browser-fallback mode and the list never loads.
   (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
   setActivePinia(createPinia());
-  resetHpLedgerForTest();
-  stopHp();
-  setHpTranslator({
-    t: (k) => String((i18n.global.t as (x: string) => string)(k)),
-    has: (k) => Boolean((i18n.global.te as (x: string) => boolean)(k)),
-  });
   invokeMock.mockResolvedValue([]);
-  await refreshHp();
 });
 
 describe("RoomShareCard", () => {
@@ -56,7 +47,7 @@ describe("RoomShareCard", () => {
     expect(w.find('[data-testid="share-mode-ticket"]').exists()).toBe(false);
   });
 
-  it("opens on the private QR, the cheaper and narrower credential", async () => {
+  it("opens on the private QR, the narrower credential", async () => {
     const w = card();
     await flushPromises();
     expect(w.get('[data-testid="share-consequence"]').text()).toMatch(/only the person you choose/i);
@@ -76,25 +67,6 @@ describe("RoomShareCard", () => {
     expect(new Set(said).size).toBe(2);
     expect(said[0]).toMatch(/only the person you choose/i);
     expect(said[1]).toMatch(/anyone holding the code/i);
-  });
-
-  it("prices a private QR far below a shareable one", async () => {
-    // The headline the whole feature exists for: the narrow credential is cheap,
-    // the bearer one costs what the permanent ticket used to.
-    const w = card();
-    await flushPromises();
-    const privatePrice = w.get('[data-testid="share-price"]').text();
-    await w.get('[data-testid="share-mode-general"]').trigger("click");
-    const bearerPrice = w.get('[data-testid="share-price"]').text();
-    expect(privatePrice).toContain("−1.5 HP");
-    expect(bearerPrice).toContain("−5 HP");
-  });
-
-  it("prices a private QR at its cheapest over Tor", async () => {
-    const w = card({ tor: true });
-    await flushPromises();
-    await w.get('[data-testid="share-mode-personal"]').trigger("click");
-    expect(w.get('[data-testid="share-price"]').text()).toContain("−0.5 HP");
   });
 
   it("warns plainly that a shareable code is not secret", async () => {
@@ -174,11 +146,6 @@ describe("RoomShareCard", () => {
     });
     await w.get('[data-testid="invite-create"]').trigger("click");
     await flushPromises();
-    // A bearer invitation is −10 HP, so it always raises the confirmation
-    // carrying its warning. Nothing is minted until that is answered.
-    expect(invokeMock.mock.calls.find((c) => c[0] === "invite_create")).toBeUndefined();
-    resolveHpConfirm(true);
-    await flushPromises();
 
     const created = invokeMock.mock.calls.find((c) => c[0] === "invite_create");
     expect(created?.[1]).toMatchObject({ roomSlug: "room-1", kind: "general", ttlSecs: 86_400 });
@@ -199,8 +166,6 @@ describe("RoomShareCard", () => {
         : [],
     );
     await w.get('[data-testid="invite-create"]').trigger("click");
-    await flushPromises();
-    resolveHpConfirm(true);
     await flushPromises();
     expect(w.find('[data-testid="invite-countdown"]').exists()).toBe(true);
 

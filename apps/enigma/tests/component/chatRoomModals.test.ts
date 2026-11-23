@@ -87,7 +87,7 @@ describe("CreateRoomModal", () => {
     // Over Tor the creator hosts the onion, so the ★ explanation is shown too.
     expect(w.text()).toContain("you'll see a ★ by your name");
     const card = w.findComponent(RoomShareCard);
-    expect(card.props()).toMatchObject({ roomSlug: "room-7", roomName: "Book club", tor: true });
+    expect(card.props()).toMatchObject({ roomSlug: "room-7", roomName: "Book club" });
   });
 
   it("leaves out the onion ★ hint for an iroh room", async () => {
@@ -99,7 +99,6 @@ describe("CreateRoomModal", () => {
     await flushPromises();
     expect(w.text()).toContain("You're the room host");
     expect(w.text()).not.toContain("★");
-    expect(w.findComponent(RoomShareCard).props("tor")).toBe(false);
   });
 
   it("closes from its footer", async () => {
@@ -333,9 +332,9 @@ describe("RoomInfoModal — a saved room that is not open", () => {
     expect(w.text()).not.toContain("Room rules");
   });
 
-  it("hands the share card the saved room, with Tor as a strict boolean", () => {
+  it("hands the share card the saved room", () => {
     const { w } = mountInfo({ room: "r3", name: "Legacy" } as P2pRoomEntry);
-    expect(w.findComponent(RoomShareCard).props()).toMatchObject({ roomSlug: "r3", roomName: "Legacy", tor: false });
+    expect(w.findComponent(RoomShareCard).props()).toMatchObject({ roomSlug: "r3", roomName: "Legacy" });
   });
 
   it("renders no card at all when there is no room to describe", async () => {

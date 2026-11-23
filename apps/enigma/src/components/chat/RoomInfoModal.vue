@@ -151,7 +151,7 @@ function close() {
       <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
       <!-- The same three-way card New chat uses. One component, so the two
            surfaces cannot drift into describing the modes differently. -->
-      <RoomShareCard :room-slug="room.room" :room-name="room.name" :tor="room.tor === true" />
+      <RoomShareCard :room-slug="room.room" :room-name="room.name" />
     </div>
 
     <template #footer>

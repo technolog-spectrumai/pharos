@@ -1,13 +1,8 @@
 import { ref, watch } from "vue";
-import {
-  getConnectTimeoutSecs,
-  isInviteTicket,
-  roomActionId,
-} from "rakotis";
+import { getConnectTimeoutSecs, isInviteTicket } from "rakotis";
 import { isTauri as _isTauriFn, invoke as _rawInvoke } from "rakotis";
 
 import { redeemInvitation } from "./redeemInvitation";
-import { chargeHp, dataCreditHp, recoverHp } from "../hp/useHp";
 import type { ChatChannel, P2pRoomEntry } from "rakotis";
 
 // Shared P2P room state + actions for the chat surface. One instance is created in
@@ -73,10 +68,6 @@ export function useP2pRooms(channel: ChatChannel) {
         createdRoom.value = { slug: t, name: entry?.name ?? n };
         createError.value = "";
         name.value = "";
-        // Privacy HP, charged only on a room that actually came up. The variant
-        // is read from the room the transport produced rather than from the Tor
-        // setting, so a room that fell back to clearnet is priced as one.
-        await chargeHp(roomActionId("create", entry?.tor === true));
       } else if (!createError.value) {
         createError.value = channel.error.value || "chat.launchFailed";
       }
@@ -115,14 +106,7 @@ export function useP2pRooms(channel: ChatChannel) {
     deleteBusy.value = true;
     try {
       // Kicks participants (if host + connected), closes connections, wipes the data.
-      const freed = await channel.deleteRoom(room);
-      // Privacy HP: deleting stored history is a real reduction in what this
-      // device is holding, so it earns — scaled by how much actually went, and
-      // nothing at all for a room that had no stored log.
-      if (freed > 0) await dataCreditHp("data.delete.chat", freed);
-      // Leaving is itself a reduction: this device stops receiving the room at
-      // all. Separate from the data credit above, and capped independently.
-      await recoverHp("room.leave");
+      await channel.deleteRoom(room);
       deleteOpen.value = false;
       deleteRoomEntry.value = null;
     } finally {

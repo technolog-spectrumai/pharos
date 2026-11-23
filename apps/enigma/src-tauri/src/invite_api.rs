@@ -112,7 +112,7 @@ fn identity_seed(app: &AppHandle) -> Result<[u8; 32], String> {
 ///
 /// `kind` is `"personal"` (sealed to `recipient`, which must be a contact's
 /// NodeId) or `"general"` (a bearer code in cleartext — the caller is expected to
-/// have warned the user and charged the higher Privacy HP price first).
+/// have warned the user first).
 #[tauri::command]
 pub async fn invite_create(
     app: AppHandle,
@@ -247,18 +247,11 @@ pub fn invite_list(app: AppHandle) -> Result<Vec<InviteSummary>, String> {
     Ok(invites::list(&app).iter().map(|r| summarise(r, now)).collect())
 }
 
-/// Withdraw an invitation. Returns whether anything moved, so the caller knows
-/// whether a Privacy HP recovery is owed — revoking something already spent or
-/// already revoked earns nothing.
+/// Withdraw an invitation. Returns whether anything moved (revoking something
+/// already spent or already revoked does not).
 #[tauri::command]
 pub fn invite_revoke(app: AppHandle, invite_id: String) -> Result<bool, String> {
     invites::revoke(&app, &invite_id)
-}
-
-/// Is any bearer invitation still live? Drives the HP recovery pairing.
-#[tauri::command]
-pub fn invite_has_live_general(app: AppHandle) -> Result<bool, String> {
-    Ok(invites::has_live_general(&app))
 }
 
 /// One record, for the detail view.

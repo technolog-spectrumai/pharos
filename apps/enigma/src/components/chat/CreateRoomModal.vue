@@ -58,7 +58,7 @@ function close() {
         <p class="text-[10px] uppercase tracking-wide opacity-50">{{ $t("chat.shareTicket") }}</p>
         <!-- Mint an invitation and see its QR without leaving this modal — the
              same card Room info uses, so the two can never disagree. -->
-        <RoomShareCard :room-slug="createdRoom.slug" :room-name="createdRoom.name" :tor="tor" />
+        <RoomShareCard :room-slug="createdRoom.slug" :room-name="createdRoom.name" />
       </div>
 
       <!-- Error -->

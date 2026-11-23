@@ -15,16 +15,14 @@
 // • Private QR    one person · expires · revocable · one-use.
 //                 Sealed to the recipient's public key, so nobody else who
 //                 photographs it can read it — and no decryption key travels
-//                 with it. The cheap option, and the one to reach for.
+//                 with it. The narrower option, and the one to reach for.
 //
 // • Shareable QR  anyone holding it · expires · revocable.
 //                 A bearer credential in CLEARTEXT. There is no recipient to
 //                 seal it to, so pretending it is secret would be theatre. It is
-//                 the most exposing thing this card can do, and always confirms.
+//                 the most exposing thing this card can do, and says so.
 //
-// Both are charged at CREATION rather than on copy: minting is what brings the
-// credential into existence, and copying it again exposes nothing further. The
-// minted QR appears in this same card, directly under the controls that made it —
+// The minted QR appears in this same card, directly under the controls that made it —
 // there is no second screen to go and find it on.
 //
 // ── the constraint this card has to state ──────────────────────────────────
@@ -37,21 +35,18 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaHpPrice, formatHp, invoke, isTauri, inviteActionId } from "rakotis";
+import { invoke, isTauri } from "rakotis";
 import { OyaCopyField, OyaQrCode, OyaTextField } from "petalite/primitives";
-import { chargeHp, confirmHp, creditFor, explainFor, priceFor, recoverHp } from "../hp/useHp";
 
 const props = defineProps<{
   roomSlug: string;
   roomName: string;
-  /** Whether the room runs over Tor. Decides which price variant applies. */
-  tor?: boolean;
 }>();
 
 const { t } = useI18n({ useScope: "global" });
 
 type ShareMode = "personal" | "general";
-// Private first: it is the cheaper, narrower credential, and the one to reach for.
+// Private first: it is the narrower credential, and the one to reach for.
 const mode = ref<ShareMode>("personal");
 
 // ── invitation form ─────────────────────────────────────────────────────────
@@ -77,9 +72,6 @@ const error = ref("");
 const minted = ref<{ ticket: string; expiresAt: number; kind: string } | null>(null);
 
 const chosenRecipient = computed(() => pasted.value.trim());
-
-const priceCenti = computed(() => priceFor(inviteActionId(mode.value, !!props.tor)));
-const priceExplain = computed(() => explainFor(inviteActionId(mode.value, !!props.tor)));
 
 const canCreate = computed(
   () => !busy.value && (mode.value === "general" || !!chosenRecipient.value),
@@ -117,11 +109,6 @@ watch(mode, () => {
 async function createInvite() {
   if (!canCreate.value) return;
   const kind = mode.value;
-  const action = inviteActionId(kind, !!props.tor);
-  // Confirmed BEFORE minting. A bearer invite is ≥10 HP, so this always asks and
-  // carries the warning; a private one never interrupts.
-  if (!(await confirmHp(action))) return;
-
   busy.value = true;
   error.value = "";
   try {
@@ -133,8 +120,6 @@ async function createInvite() {
       ttlSecs: effectiveTtl.value,
     });
     minted.value = res;
-    // Charged only once the credential actually exists.
-    await chargeHp(action);
     await refreshRows();
   } catch (e) {
     error.value = typeof e === "string" ? e : ((e as Error).message ?? "");
@@ -144,11 +129,7 @@ async function createInvite() {
 }
 
 async function revoke(id: string) {
-  // The command answers whether a record really moved from live to revoked —
-  // that boolean IS the verified state change the credit is tied to, so
-  // revoking something already spent or expired earns nothing.
-  const moved = await invoke<boolean>("invite_revoke", { inviteId: id }).catch(() => false);
-  if (moved) await recoverHp("invite.revoke");
+  await invoke<boolean>("invite_revoke", { inviteId: id }).catch(() => false);
   if (minted.value && rows.value.find((r) => r.id === id)) minted.value = null;
   await refreshRows();
 }
@@ -191,14 +172,10 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
       </button>
     </div>
 
-    <!-- One line on what this mode actually means, plus its price. The
-         consequence and the cost belong together, before the tap. -->
-    <div class="flex flex-wrap items-start justify-between gap-2">
-      <p class="min-w-0 flex-1 text-[11px] leading-relaxed opacity-70" data-testid="share-consequence">
-        {{ $t(`invite.consequence.${mode}`) }}
-      </p>
-      <OyaHpPrice :centi="priceCenti" :explain="priceExplain" data-testid="share-price" />
-    </div>
+    <!-- One line on what this mode actually means, before the tap. -->
+    <p class="text-[11px] leading-relaxed opacity-70" data-testid="share-consequence">
+      {{ $t(`invite.consequence.${mode}`) }}
+    </p>
 
     <p
       v-if="mode === 'general'"
@@ -279,7 +256,6 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
         >
           <font-awesome-icon :icon="busy ? 'spinner' : 'qrcode'" :spin="busy" />
           {{ $t("invite.create") }}
-          <span class="tabular-nums opacity-70">{{ formatHp(priceCenti) }} HP</span>
         </button>
         <p v-if="error" class="text-xs text-warn-dark" data-testid="invite-error">{{ error }}</p>
       </template>
@@ -329,7 +305,6 @@ const MODES: { id: ShareMode; label: string; icon: string }[] = [
               @click="revoke(r.id)"
             >
               {{ $t("invite.revoke") }}
-              <span class="opacity-70">+{{ formatHp(creditFor("invite.revoke")) }}</span>
             </button>
           </li>
         </ul>

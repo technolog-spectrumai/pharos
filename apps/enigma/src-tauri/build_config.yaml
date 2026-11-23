@@ -11,7 +11,6 @@
 #                                     (`apps.enigma.features`), from the
 #                                     catalogue in Cargo.toml `[features]`
 #   name, identifier, version         tauri.conf.json
-#   the Privacy HP price table        privacy_hp.yaml
 #
 # See technology.md §15 for the full list of who owns what.
 

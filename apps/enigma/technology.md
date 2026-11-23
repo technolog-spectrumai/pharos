@@ -28,7 +28,6 @@ Contents: [1 Design](#1-design) · [2 Stack](#2-technology-stack) ·
 [13 Encryption at rest](#13-encryption-at-rest-gervasius--protasius) ·
 [14 Conventions](#14-conventions-naming--palette) · [15 Config sources](#15-config--sources-of-truth) ·
 [16 Rework history](#16-history--the-serverless-rework) ·
-[17 Privacy HP](#17-privacy-hp--the-exposure-budget) ·
 [18 Invitations](#18-invitations--encrypted-expiring-revocable) ·
 [19 Run, build, test](#19-run-build-and-test) · [20 Features and presets](#20-features-and-presets) ·
 [21 Releasing](#21-releasing) · [22 Installing](#22-installing) ·
@@ -488,11 +487,6 @@ security), which implies:
 | Device location | **Never read, never sent.** The app has no geolocation permission, no positioning plugin, and never calls `navigator.geolocation` (an e2e test traps the API and fails if that changes: `tests/e2e/noGeolocation.spec.ts`). It has no location feature of any kind: the Map tab, where a user could share a point they had tapped, moved to Morion on 2026-10-03, and the server-published Beacon layer was deleted with Enigma Cloud ([§16](#16-history--the-serverless-rework)). |
 | Metadata protection (Tor) | **Available, opt-in** — the "use Tor" switch routes rendezvous + chat over peer-hosted onion services; off by default. |
 
-**Reading this table as a user.** [§17](#17-privacy-hp--the-exposure-budget)
-turns every row above into a fixed, comparable price shown next to the control
-that triggers it — the same threat model, expressed as a budget rather than a
-table. It measures and remembers; it does not protect.
-
 **At-rest posture.** All persisted state is sealed in the per-profile protasius vault
 (Argon2id-derived key wrap, XChaCha20-Poly1305 values, AAD-bound to each record's
 location). The plaintext exceptions are: the vault header `vault.json` (salt +
@@ -626,9 +620,9 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   `RoomInfoModal`) — three ways in, on segmented pills: the **room ticket**
   (permanent, anyone, not revocable), a **private QR** (sealed to one recipient,
   expiring, revocable) and a **shareable QR** (bearer, expiring, revocable, with
-  an explicit "this is not secret" warning). Each states its consequence and its
-  Privacy HP price before the tap, and the invitation modes carry the "keep this
-  room open until they join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
+  an explicit "this is not secret" warning). Each states its consequence before
+  the tap, and the invitation modes carry the "keep this room open until they
+  join" note ([§18](#18-invitations--encrypted-expiring-revocable)).
   Redemption needs no new surface: `JoinRoomModal`'s single field routes an
   invitation by its tag byte. In a room the captain has marked **invite only**
   ([§18.8](#188-invite-only-rooms)) the ticket pill is withdrawn entirely and the
@@ -638,17 +632,6 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   logo and rules, ban management, and the **invite only** switch
   ([§18.8](#188-invite-only-rooms)), whose label states plainly that enforcement
   holds only while every member is running this app.
-- **Privacy** (`EnigmaPrivacyView`, `/privacy`) — the two HP meters, then two
-  sub-tabs: **Rules** (the whole price table, each section folded by default, plus
-  what earns HP back) and **Decisions** (the ledger, scrolling in its own box).
-  Read-only by design — prices are charged where the risky thing happens, never
-  from a list of them ([§17](#17-privacy-hp--the-exposure-budget)).
-
-  Reached **only** from the header's **HP chip**, and deliberately absent from
-  `APP_TABS`: like Settings and the welcome page it is chrome, not a nav tab, so
-  it has no nav link, no visibility checkbox and no route guard — the chip cannot
-  be stranded by hiding tabs. It lived as a sixth pill inside Settings until the
-  meters became something people *check* rather than configure.
 - **Settings** (`EnigmaConfigView`) — five tabs: **Profile** (local-only PII,
   multiple named profiles), **Settings** (language en/pl; which tabs this device
   shows; max file size; transfer chunk size + integrity check),
@@ -658,15 +641,12 @@ A tabbed app (memory-history router, no URL bar), behind the at-rest **unlock ga
   the one tab with no visibility checkbox — it is the only route back to the
   others.
 - **Welcome** (`EnigmaWelcomeView`, `/welcome`) — reached by tapping the Enigma27
-  mark in the top left. Three cards: what the app is (icon, version, one-line
-  pitch), who you are on it (profile name, avatar, MLS identity, active storage
-  profile) and your HP meters. Ungated for the same reason Settings is — a logo
+  mark in the top left. Two cards: what the app is (icon, version, one-line
+  pitch) and who you are on it (profile name, avatar, MLS identity, active
+  storage profile). Ungated for the same reason Settings is — a logo
   that could lead nowhere would be a dead end on every screen. Deliberately **not** `/`: that
   redirect still resolves to the first visible tab, which is where every lock
-  cycle re-enters after the webview reload. A compact **HP chip** — today's
-  balance only — sits in the header on every screen and is the only way into
-  **Privacy**
-  ([§17](#17-privacy-hp--the-exposure-budget)).
+  cycle re-enters after the webview reload.
 
 Styling is Tailwind v4 with the in-repo "Oya" primitives kit; CSS-first design
 tokens — see [§14](#14-conventions-naming--palette). Dark mode defaults on but is
@@ -842,7 +822,7 @@ deliberate act — Settings → Data → "Clear all data", or the panic code (§
 
 **Tauri commands.** `snake_case`, `<domain>_<verb>` families — `app_*`, `vault_*`,
 `kv_*`, `mls_*`, `realtime_*`, `audio_*`, `fs_*`, `tor_*`, `file_*`,
-`invite_*`, `hp_*`. All registered in the single
+`invite_*`. All registered in the single
 `generate_handler!` block in `apps/enigma/src-tauri/src/lib.rs`. (Two legacy getters,
 `current_profile`/`current_identity`, predate the prefix rule — leave or migrate to
 `app_*`, don't add new prefix-less commands.)
@@ -856,7 +836,7 @@ single event multiplexes all rooms, the payload carries the room id), plus
 **i18n keys.** Two levels: `namespace.camelCaseLeaf` (`chat.newChat`, `vault.wrongPass`).
 Namespaces: `nav`, `common`, `keys`, `lang`, `network`, `config`, `chat`,
 `files`, `sketch`, `local`, `fileShare`, `invite`,
-`profile`, `vault`, `hp`, `welcome`. Interpolation uses single-brace named tokens
+`profile`, `vault`, `welcome`. Interpolation uses single-brace named tokens
 (`{n}`). English and Polish live in
 [`apps/enigma/src/i18n/`](apps/enigma/src/i18n/) and are the **only** catalogs;
 documentation is not translated.
@@ -1002,7 +982,6 @@ and a test or the build fails if a copy drifts.
 | App name, identifier, version | `tauri.conf.json` | `build.rs` (→ `build_config::app`), the bundler, the dev runner |
 | Debug/release, package formats, Android, tests, forbidden crates | [dromon.yaml](dromon.yaml) (one variant, `default`) | `./build.sh enigma`, `./run_dev.sh enigma`, `./tests.sh enigma` |
 | Crypto parameters, protocol constants, setting defaults and bounds, new-profile toggle defaults | `build_config.yaml` | `build.rs` → every Rust module; the frontend through `app_get_build_config` |
-| Privacy HP prices | `privacy_hp.yaml` | `build.rs` → `hp_policy` |
 | The value of a setting at run time | the profile's encrypted store (kv `p2p:settings`) | Rust and the frontend, clamped to the bounds above |
 
 Precedence follows from that: `dromon.yaml` cannot touch crypto, protocol
@@ -1012,14 +991,6 @@ whether an opt-in such as Tor is used.
 
 App name and identifier are fixed to `Enigma27` / `com.spectrumaipl.enigma27`;
 `build.rs` rejects a `tauri.conf.json` that says otherwise.
-
-**Privacy HP price table (compile-time):**
-[`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml)
-— the second file `build.rs` bakes in, on the same contract as the build config
-(validate → codegen → `enigma_lib::hp_policy`; an invalid table fails the build).
-Like the build config it is the same for every build: an exposure does not
-get cheaper with a different product. Full rationale in
-[§17](#17-privacy-hp--the-exposure-budget).
 
 **Frontend app config:** [`apps/enigma/src/config/app.ts`](apps/enigma/src/config/app.ts)
 — brand identity, UI policy, dev port. Import `brand` / `policy` / `dev` from here
@@ -1042,8 +1013,6 @@ instead of hardcoding.
 | Argon2id params | `build_config.yaml` `crypto.kdf` (new vaults, via `lib.rs::kdf_params`) | Persisted per-vault in the header, so old vaults always unlock; `gervasius KdfParams::default()` is the library-level fallback and must stay in sync |
 | P2P frame cap / onion port / Tor timeouts | `build_config.yaml` `network:` | `max_frame_bytes` is **wire-interop** (Tor frame + iroh gossip cap — change in lockstep across a fleet); onion port rides in tickets |
 | Transfer chunk size | `build_config.yaml` `settings.file_chunk_kib` (clamp) → kv `p2p:settings/file_chunk_kib` | User-settable ("file chunk size"); governs every `file_xfer.rs` transfer (chat share, Maps regions). The sender's value governs a transfer and is echoed in the wire header. Device-local. Replaced the old `network.transfer_chunk_bytes` |
-| Privacy HP price table | `apps/enigma/src-tauri/privacy_hp.yaml` | Compile-time, **the same for every build** (prices are not a product knob). `build.rs` validates it (ladder membership, two-decimal precision, cap sanity, `requires:` pairing, and a required-id list so a rename fails the build instead of silently making a surface free) and generates `enigma_lib::hp_policy` |
-| Privacy HP ledger | protasius ns `hp` via `vault::get/put` (**internal** tag) | Per-profile, append-only, reason codes and numbers only. Deliberately NOT in the `kv_*` keyspace the webview can write: a different AAD tag means JS cannot read, forge or clobber it. Balances are derived, never stored — see [§17.4](#174-regeneration) |
 | Invitation state | protasius ns `invites` via `vault::get/put` (**internal** tag) | Per-profile, per-issuer: the capability, recipient binding, deadline and `Active/InFlight/Consumed/Revoked` state of every invitation minted. Deliberately NOT in the `kv_*` keyspace the webview can write. Expiry is decided **here**, on the inviter's clock — the deadline inside a ticket is advisory ([§18](#18-invitations--encrypted-expiring-revocable)) |
 | PIN unlock | always built in; `build_config.yaml` `settings.pin_digits` (clamp) | Memory-only convenience re-unlock; the passphrase remains the at-rest secret. Nothing persisted, so no migration and no on-disk mode marker |
 | Transfer integrity check | `build_config.yaml` `defaults.file_integrity` (default) → kv `p2p:settings/file_integrity` | Per-chunk hash chain; **either** side enabling it applies it, and a side that requires it aborts if the peer sends none |
@@ -1236,9 +1205,17 @@ Enigma became chat and files only, over iroh or Tor, in one edition. Voice calls
 (Vox), the Mainline DHT (room codes, nickname directory, presence), contacts and
 direct room invites, the room calendar (meetings, polls), iroh's hosted n0 relays
 and discovery, and the Professional/Standard editions were removed; Vesper keeps
-them. Invitations, file transfer, Tor, PIN unlock and Privacy HP stayed. The
-Privacy HP table lost the DHT, call and calendar prices. Last commit with all of
-it: `998d5360da06f571f5d0c21f5d012888b8e5e453`.
+them. Invitations, file transfer, Tor and PIN unlock stayed. Last commit with
+all of it: `998d5360da06f571f5d0c21f5d012888b8e5e453`.
+
+### Removed — Privacy HP (2026-11-22)
+
+The exposure budget (two meters, a price beside every exposing control, a
+ledger in the vault) was dropped to keep the app simple. Its price table
+(`privacy_hp.yaml`), the `hp_*` commands, the header chip, the Privacy page and
+the welcome page's meters went with it. A profile that used it keeps a sealed
+`hp` namespace in its vault that nothing reads any more; it goes with the rest
+of the vault when the profile's data is cleared.
 
 ### Moved to Morion — maps (2026-10-03)
 
@@ -1280,244 +1257,6 @@ open in Morion as they are, and the pins, which have no way out.
 
 ---
 
-## 17. Privacy HP — the exposure budget
-
-A small, deliberately game-like layer that lets a user **compare the relative
-safety of the choices this app offers**, in one currency, with the price shown
-before the tap. Two meters per profile: **Daily, max 100** and **Weekly, max
-700**.
-
-**It is advisory and inert.** Nothing in it gates, blocks, delays or weakens MLS,
-Tor, iroh, the vault or the passphrase. Deleting the whole feature would leave
-the app behaviourally identical, minus the numbers. It adds no server, no
-account and no telemetry — every byte it writes stays in the profile's own
-encrypted store, and nothing about it ever leaves the device.
-
-### 17.1 Where each part lives
-
-| Concern | Home |
-| --- | --- |
-| The prices | [`apps/enigma/src-tauri/privacy_hp.yaml`](apps/enigma/src-tauri/privacy_hp.yaml) — one file, every build |
-| Validation + codegen | `build.rs` → `enigma_lib::hp_policy` consts. **An invalid table fails the build** |
-| Ledger, clock, enforcement | `src-tauri/src/privacy_hp.rs` (`hp_*` commands) |
-| Policy, derivation, copy | `packages/rakotis/src/privacyHp.ts` (pure) + `services/hp.ts` (bridge + browser mirror) |
-| UI | `OyaHpPrice` / `OyaHpMeter` primitives; `components/hp/` (chip, flash, confirm, panel, `useHp`); `EnigmaWelcomeView`; Settings → Privacy |
-
-**The webview never names an amount.** It names an action id and Rust looks the
-price up in its own compile-time table. A compromised frontend can charge the
-*wrong* action; it cannot invent a price or hand itself a credit.
-
-**Storage boundary.** The ledger uses `vault::get/put` under ns `hp` — the
-protasius **internal** tag. The `kv_*` commands the webview can call use a
-different AAD tag and a different record space, so JS can neither read, forge nor
-clobber the ledger even though it freely writes its own settings.
-
-**Arithmetic.** Every amount is an integer number of hundredths ("centi-HP") in
-both languages. No float reaches the ledger, so balances are reproducible
-byte-for-byte. `build.rs` rejects a third decimal place.
-
-### 17.2 The price table
-
-Five rungs — **0.5 / 1.5 / 2.5 / 5 / 10** — for negligible, low, moderate, high and
-severe. A fixed price must land on a rung (build-enforced); metered actions bill
-
-**Halved 2026-08-24.** Every rung, metered rate and credit was divided by two, so
-the budget goes twice as far while every *ratio* between prices is preserved —
-which is what the ladder is for. The meters (100 / 700) and the regeneration
-rates were deliberately left alone: the change was to what actions cost, not to
-the size of the budget or the speed of recovery. Three rates could not halve
-exactly at two decimal places (0.05 → 0.025, 0.25 → 0.125) and are rounded
-**down** — the direction the halving was asked for, on per-message and per-MiB
-rates where the difference is far below anything a user can perceive.
-in fractions below the bottom rung. Every price cites the threat-model line it
-comes from.
-
-**Transport posture**
-
-| Action | HP | Why ([§8](#8-privacy), [§9](#9-security--privacy-considerations)) |
-| --- | ---: | --- |
-| `transport.tor.disable` | **−20** | §8, §9.6 — re-exposes IPs, timing and sizes to peers and the network path for *everything after it*. Severe because it is a posture, not one disclosure |
-| `transport.onion_stable.enable` | −1.5 | One long-lived `.onion` makes sessions linkable; materialises an onion keystore while unlocked (§8) |
-
-**Rooms and tickets** — the Tor variant axis (chat re-homes onto the onion transport)
-
-| Action | HP | Why |
-| --- | ---: | --- |
-| `ticket.export.clearnet` | **−5** | §8 — carries room name + NodeId + **IP addresses**, and is the most copyable artefact in the app |
-| `ticket.export.tor` | −1.5 | Room name + `.onion`, **no IP** |
-| `room.create.clearnet` / `.tor` | −2.5 / −0.5 | A `blake3(name)` topic joined in the clear (§9.7) vs. the same topic without an IP |
-| `room.join.clearnet` / `.tor` | −2.5 / −0.5 | Announces your device to the topic's peers, with or without an IP |
-
-**Messages** — billed per send *and* per MiB, because size is exactly what an
-observer sees when the content is sealed. Received messages are never billed.
-
-| Lane | Per message | Per MiB | Cap |
-| --- | ---: | ---: | ---: |
-| `msg.tor.mls` | **0** | 0 | — |
-| `msg.clearnet.mls` | −0.02 | −0.02 | −0.5 |
-| `msg.tor.plain` | −0.05 | 0 | — |
-| `msg.clearnet.plain` | −0.25 | −0.25 | −2.5 |
-
-The plaintext lanes are the pre-MLS cleartext fallback (§9.5). The composer shows
-the current lane's rate and it **drops to "Free" the moment MLS reports ready over
-Tor** — which makes the encryption state legible in a way the lock badge alone is
-not.
-
-**Traffic that cannot use Tor.** `file_xfer.rs` is iroh-direct-QUIC only and is
-*blocked* in Tor mode (`stores/network.ts`: `irohBlocked`). There is no safe
-variant to offer, which is precisely why it prices where it does.
-
-| Action | Base | Metered | Cap |
-| --- | ---: | --- | ---: |
-| `file.send` | −0.5 | −0.02 / MiB | −2.5 |
-
-**Local security** — not exposure, but a lower wall between the data and whoever
-picks up the device.
-
-| Action | HP | Why |
-| --- | ---: | --- |
-| `local.autolock.off` | **−5** | `idle_lock_mins = 0` keeps the DEK live indefinitely ([§13](#13-encryption-at-rest-gervasius--protasius)) |
-| `local.pin.enroll` | −1.5 | Memory-only convenience; a RAM dump of an idle-locked process can brute-force six digits (§7) |
-| `local.panic_code.clear` | −1.5 | Loss of the duress escape hatch — priced low precisely because it is not an exposure |
-| `local.lock_on_hide.off` | −0.5 | |
-| `local.file_integrity.off` | −0.5 | Drops the per-chunk hash chain |
-
-**Never charged:** receiving anything, reading, searching, local-only work, and
-every message on the safe lane.
-
-### 17.3 Charging rules
-
-- **Toggles** charge on the off→on transition only and are idempotent —
-  re-affirming a live switch costs nothing and writes nothing.
-- **Events** charge on every activation. No dedup: the meter always moves by
-  exactly the number that was on the button.
-- **Metered** actions charge a base plus a rate, capped per event, and are
-  coalesced (§17.6).
-- **Confirmation** is raised only at ≥5 HP or when a meter is already empty.
-  Everything cheaper stays one-tap. The dialog never refuses — "Continue" is
-  always available, at any balance.
-- Charges land **after** the action succeeds, so a room that never came up or a
-  transfer that was declined costs nothing.
-
-### 17.4 Regeneration
-
-Both meters are **rolling windows** — 24 h and 7 days — not calendar-bounded.
-That needs no timezone (std has no local-offset API and this was not worth a
-dependency), has no midnight to double-collect across, and makes "a charge
-expires one day after it was made" literally true.
-
-Each charge then **heals on its own clock**:
-
-```
-unhealed(charge) = max(0, hp − elapsed × rate)
-balance          = clamp(max − Σ unhealed + credits, 0, max)
-```
-
-Daily heals **+4 HP/h**, Weekly **+1 HP/h**. Nothing is written when HP returns —
-which is why offline use, restarts, crashes and app-closed time need no
-reconciliation at all: there is no counter to reconcile. The two meters therefore
-differ *only* in ceiling, window length and rate.
-
-The rates were chosen against real use: you would have to send **>80 clearnet
-messages an hour** to outpace the daily drip, and **>20/hour** to outpace the
-weekly one. So casual clearnet chat is effectively free and the weekly meter is
-what registers a sustained habit.
-
-### 17.5 Recovery
-
-Fixed credits, paid **only for a change that reduces risk you are currently
-carrying**, capped at **12.5 HP/day and 50 HP/week** across everything.
-
-| Recovery | HP | Condition |
-| --- | ---: | --- |
-| `transport.tor.enable` | +5 | Paired exposure live |
-| `local.passphrase.strengthen` | +5 | New passphrase **longer** than the old (lengths only, compared inside `vault_change_passphrase`; neither is stored) |
-| `local.autolock.on` | +2.5 | `idle_lock_mins > 0` |
-| `local.passphrase.change` | +1.5 | Any change — protasius re-wraps the DEK under a fresh salt |
-| `room.rekey` / `room.leave` | +1.5 | Once per rolling day |
-| `invite.revoke` | +2.5 | Only when a record really moved live→revoked |
-| `room.inviteonly.enable` | +2.5 | Only when a room really moved open→closed ([§18.8](#188-invite-only-rooms)) |
-| `data.delete.chat` / `.files` | +0.12/MiB freed, floor 0.25, ceiling 2.5 | Own caps: 5/day, 12.5/week |
-
-**Key rotation out-pays a passphrase change by a full rung, and the gap is the
-point.** Changing a passphrase re-wraps the DEK: it protects the key, but every
-byte on disk is still sealed under the same DEK as yesterday. Rotation replaces
-the keys the *data* is encrypted under, so ciphertext an attacker copied earlier
-is sealed under a key that no longer exists anywhere.
-
-**Pairing is what makes recovery idempotent.** A credit with `requires:` pays only
-while its paired exposure is live and unrecovered, so a switch flipped off and on
-again is always a **net loss**, never a profit. Credits without a pair
-(passphrase, rotation) are bounded by a rolling-day lockout instead.
-
-**Who measures a deletion credit:** the frontend. `data.delete.chat` and
-`.files` are both reported by it, because the deletion happens there; the
-per-event ceiling and the two data caps are what make an inflated claim
-pointless. (The one credit Rust measured itself, for deleting a map region,
-went with the Map tab.)
-
-### 17.6 The ledger
-
-`ns "hp"`, one sealed blob per UTC day (`d/<day>`) plus a `meta` index — the
-`chat:log` pattern, without needing a key-listing API protasius does not have.
-30-day retention; the meters need 8.
-
-```
-{ ts, kind: "spend" | "recover", code, hp, n, bucket }
-```
-
-**Reason codes and numbers only.** No message, contact, room name, nickname,
-ticket, path or peer id ever reaches this file. The "Why did this change?" view
-(Settings → Privacy) is therefore as specific as *"47 messages on an
-unencrypted-transport channel · −2.35 HP"* and no more.
-
-**Micro-charges are coalesced** into one row per (action, hour). One row per
-message would bloat a blob that is re-sealed on every append — and, more
-importantly, **a timestamped row per message is itself a log of your messaging
-activity**. The open bucket for the current hour is updated in place; a sealed one
-is never touched again.
-
-**Timestamps are clamped monotonic** (`ts = max(now, hi_ts + 1)`), so a clock set
-backwards cannot slip a row in behind existing history, escape a charge, or
-re-collect a once-per-day credit. Backwards clocks also heal nothing (saturating
-subtraction).
-
-### 17.7 Limitations — read these before trusting a number
-
-1. **Regeneration is gamification. It repairs nothing.** An invitation you
-   shared is still out there long after the bar has refilled. The meters
-   measure and remember; they do not protect, and no balance implies safety.
-2. **A forward clock change is not defended against.** Winding the clock forward
-   heals charges early and expires them from the window. Backwards is guarded;
-   forwards is not, because the only person it cheats is the user.
-3. **HP prices actions and changes, not standing posture.** Tor ships *off*, so a
-   fresh profile is never charged `transport.tor.disable` even though it is fully
-   exposed. That is why the clearnet posture is *also* priced through every
-   action's own variant.
-4. **A known, capped farm exists.** Receive a large file, delete it, collect.
-   The per-event ceiling and the data caps bound it to a nuisance. Closing it
-   properly would need a hidden "data must be N days old" rule, and a visible cap
-   is the more honest trade.
-5. **Two deletion credits trust the frontend's byte count** (§17.5). The caps, not
-   the caller, are what bound them.
-6. **A full "Clear all data" wipe awards nothing** — it destroys the profile store
-   *including* this ledger, so there is nowhere to put a credit. The outcome is
-   already the best available: the fresh profile opens at a full 100 / 700,
-   because no history survives to count against it. The panic-code wipe is the
-   same, and that path is untouched by any of this.
-7. **The ledger is per-profile and per-device.** It is not synced, and a second
-   device has its own.
-8. **Prices are a judgement, not a measurement.** They are ordinal — they say a
-   clearnet ticket is worse than a Tor one — and the ordering, not the absolute
-   number, is what is meant to be trusted.
-9. **Lock-time accrual was considered and deliberately not built.** An earlier
-   design regenerated HP per hour spent locked behind the passphrase gate; it was
-   dropped because the vault DEK is gone while locked, forcing an
-   anchor-then-settle mechanism with real edge cases (crash windows, restarts,
-   clock rollback) for a small gain. Its absence is a decision, not an oversight.
-
----
-
 ## 18. Invitations — encrypted, expiring, revocable
 
 A second way into a room, deliberately narrower than a ticket.
@@ -1536,7 +1275,7 @@ Two kinds, because the honest claim differs:
   in the QR. A real confidentiality claim.
 - **General** — a transferable bearer code in **cleartext**. There is no
   recipient to seal it to, so it is not confidential, is not claimed to be, and
-  the UI, the HP explanation and the price all say so.
+  the UI says so.
 
 ### 18.1 The ticket
 
@@ -1645,7 +1384,7 @@ discard live group state.
 ### 18.5 State
 
 `vault::get/put` under ns `invites` — the protasius **internal** tag, so the
-webview can neither read nor forge invite state (the boundary the HP ledger uses).
+webview can neither read nor forge invite state.
 
 The **capability itself is stored**, not just a hash. Verifying a keyed MAC needs
 the key; an issuer holding only a hash could not check the proof, and the protocol
@@ -1656,32 +1395,6 @@ the MLS state and the iroh identity key.
 Retention runs from the **terminal event** (`Consumed{at}` / `Revoked{at}`), not
 the deadline: an invitation revoked today but issued with a year to run is
 finished today.
-
-### 18.6 Prices ([§17](#17-privacy-hp--the-exposure-budget))
-
-| Action | HP |
-| --- | ---: |
-| `invite.personal.create.tor` | **−0.5** |
-| `invite.personal.create.clearnet` | **−1.5** |
-| `invite.general.create.tor` | −2.5 |
-| `invite.general.create.clearnet` | −5 |
-| `invite.revoke` | **+5** |
-
-A private invitation is **−1.5 against the room ticket's −5** — the cheap option is
-the private one, which is the point. A bearer invitation is priced *level with*
-exporting a ticket: same address, same audience, better only in that it expires
-and can be revoked. At −5 it always raises the confirmation, so the warning
-precedes the tap.
-
-Charged at **creation**, not on copy: minting brings the credential into
-existence, and copying it again exposes nothing further. (The room ticket is the
-other way round — it already exists, so sharing is the act.) Redemption is charged
-as `room.join.*`, because it *is* a room join.
-
-`invite.revoke` is unpaired — a bearer invitation can be minted on either
-transport, so pairing it to one action id would refuse to pay for the other. The
-verified state change is enforced at the call site: `invite_revoke` returns whether
-a record really moved from live to revoked, and the credit is claimed only on that.
 
 ### 18.7 Limitations
 
@@ -1750,9 +1463,6 @@ captain election and the single-adder rule ([§9.3](#9-security--privacy-conside
 and it is why the switch's own label says "everyone in the room enforces this, so
 it holds as long as they are all running this app" rather than "only people you
 invite can join".
-
-Privacy HP: `room.inviteonly.enable` **+5**, claimed only on a real open→closed
-move ([§17](#17-privacy-hp--the-exposure-budget)).
 
 ---
 
@@ -2356,7 +2066,7 @@ npm run test:e2e -w apps/enigma            # Playwright smoke tier (no backend �
 
 **One edition since 2026-11-16.** The crate has no optional cargo features and
 [dromon.yaml](dromon.yaml) one variant (`./build.sh enigma`). Enigma is chat and
-file transfer over iroh or Tor, with PIN unlock and Privacy HP; voice calls, the
+file transfer over iroh or Tor, with PIN unlock; voice calls, the
 DHT, contacts, the calendar and iroh's hosted relays went to Vesper, and with them
 the Professional/Standard split. The build still refuses to link `mainline` or
 `rustfft` (`forbid_crates`), so they cannot come back with a merge. The last commit
@@ -3247,23 +2957,6 @@ work — key verification, admission approval, CSP/FS scoping, PCS key rotation)
   packages outright, which covers the "nobody uninvited gets in" case; an approval
   UI is what an *open* room still needs, so a member can see and accept a joiner
   rather than the first admin adding them silently.
-- **Duration-scaled invitation pricing** — an invitation valid for a week should
-  cost more Privacy HP than one valid for an hour, over a baseline for minting at
-  all. The metered machinery already has the shape (a base `cost` plus a rate plus
-  a `cap_per_event`, exactly as `tor.persistent.hold` bills by the minute); what is missing is
-  a third rate axis beside `per_mib` and `per_minute`:
-
-  ```yaml
-  - id: invite.general.create.clearnet
-    kind: metered
-    cost: 5           # baseline: minting a credential at all
-    per_hour: 0.05    # the validity window, not a payload size
-    cap_per_event: 20
-  ```
-
-  Needs `per_hour` in `build.rs`, in the derivation, and in the share card — whose
-  badge must move as the deadline preset changes, because the price on the button
-  has to be the price charged ([§17](#17-privacy-hp--the-exposure-budget)).
 - **Accepted limitations (documented, deliberate):**
   - Cold start: with no discovery service, if every member's addresses changed
     while they were apart, reconnection needs a fresh QR.

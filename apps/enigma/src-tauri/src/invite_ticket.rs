@@ -25,7 +25,7 @@
 //! * **General** — a transferable bearer credential in **cleartext**. There is no
 //!   recipient to seal to, so there is nothing to encrypt it with that the holder
 //!   would not also need. It is not confidential, it is not claimed to be, and the
-//!   UI and the HP price both say so. Sealing it under a key printed beside it
+//!   UI says so. Sealing it under a key printed beside it
 //!   would be theatre.
 //!
 //! ## Wire format
@@ -108,8 +108,7 @@ impl InviteKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InviteAddr {
     /// Direct QUIC: the inviter's dialable addresses. Carries their IP, exactly
-    /// as an ordinary clearnet ticket does — which is why the clearnet variants
-    /// cost more Privacy HP than the Tor ones.
+    /// as an ordinary clearnet ticket does.
     Iroh(Vec<EndpointAddr>),
     /// The inviter's onion address. No IP.
     Tor(String),

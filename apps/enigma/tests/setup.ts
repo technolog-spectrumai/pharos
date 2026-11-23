@@ -26,10 +26,8 @@ config.global.stubs = {
 };
 
 // Unmount whatever a test mounted once it ends. A wrapper left mounted keeps
-// reacting to the module-level state the next tests change (the HP ledger, the
-// build config, the router), so every later write re-renders every earlier
-// test's components: hpUi's 30-charge test took 120 ms alone and over 6 s
-// under coverage, past the timeout, before this.
+// reacting to the module-level state the next tests change (the build config,
+// the router), so every later write re-renders every earlier test's components.
 enableAutoUnmount(afterEach);
 
 afterEach(() => {

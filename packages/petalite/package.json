@@ -15,7 +15,6 @@
     "./files": "./src/files/index.ts",
     "./formats": "./src/formats/index.ts",
     "./i18n": "./src/i18n/index.ts",
-    "./vendor/chartjs": "./src/vendor/chartjs/index.ts",
     "./*.vue": "./src/components/*.vue"
   },
   "dependencies": {
