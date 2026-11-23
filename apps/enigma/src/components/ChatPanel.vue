@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, onMounted } from "vue";
 import type { ChatChannel } from "rakotis";
-import { useP2pRooms } from "./chat/useP2pRooms";
+import { useChatStore } from "../stores/chat";
 import ChatHeader from "./chat/ChatHeader.vue";
 import ObserverBanner from "./chat/ObserverBanner.vue";
 import MessageList from "./chat/MessageList.vue";
@@ -13,16 +13,14 @@ import CreateRoomModal from "./chat/CreateRoomModal.vue";
 import JoinRoomModal from "./chat/JoinRoomModal.vue";
 import RoomInfoModal from "./chat/RoomInfoModal.vue";
 import DeleteRoomModal from "./chat/DeleteRoomModal.vue";
-import MobileRoomsDrawer from "./chat/MobileRoomsDrawer.vue";
 
 const props = defineProps<{ channel: ChatChannel }>();
 const channel = props.channel;
 const { currentRoom, error, isParticipant } = channel;
 
 // Shared P2P room state — one instance feeds both the desktop sidebar and the drawer.
-const p2p = useP2pRooms(channel);
+const p2p = useChatStore().rooms;
 const { createOpen, joinOpen, infoOpen, deleteOpen } = p2p;
-const sidebarOpen = ref(false);
 
 // ── Join ⇄ camera handoff ────────────────────────────────────────────────────
 // The scanner is only reachable from inside the join window, and both are
@@ -49,7 +47,6 @@ async function onScanned(ticket: string) {
 }
 
 onMounted(() => channel.loadP2pRooms());
-watch(currentRoom, () => (sidebarOpen.value = false));
 </script>
 
 <template>
@@ -70,12 +67,12 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <section
       class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
-      <ChatHeader :channel="channel" :controller="p2p" @open-sidebar="sidebarOpen = true" />
+      <ChatHeader :channel="channel" :controller="p2p" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />
       <div v-if="error" class="border-b border-warn-dark/30 bg-warn-dark/10 px-4 py-2 text-xs text-warn-dark">
         <font-awesome-icon icon="triangle-exclamation" class="mr-1" />{{ error }}
       </div>
-      <MessageList :channel="channel" :controller="p2p" @open-sidebar="sidebarOpen = true" />
+      <MessageList :channel="channel" :controller="p2p" />
       <MessageComposer :channel="channel" />
     </section>
 
@@ -110,7 +107,5 @@ watch(currentRoom, () => (sidebarOpen.value = false));
     <RoomInfoModal v-model:open="infoOpen" :controller="p2p" :channel="channel" />
     <DeleteRoomModal v-model:open="deleteOpen" :controller="p2p" />
 
-    <!-- Mobile rooms + participants drawer (reuses the same sub-components) -->
-    <MobileRoomsDrawer v-model:open="sidebarOpen" :channel="channel" :controller="p2p" />
   </div>
 </template>

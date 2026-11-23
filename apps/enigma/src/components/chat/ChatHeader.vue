@@ -4,10 +4,9 @@ import { useI18n } from "vue-i18n";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 
-// One compact bar, as in any messenger: the rooms button, the room's name with
+// One compact bar, as in any messenger: the room's name with
 // its state on one line under it, Invite, and a menu for everything rarer.
 const props = defineProps<{ channel: ChatChannel; controller: P2pRoomsController }>();
-defineEmits<{ "open-sidebar": [] }>();
 const { t } = useI18n();
 const ch = props.channel;
 const { currentRoom, mlsStatus, wsStatus, linkedOnions, p2pRooms } = ch;
@@ -52,14 +51,6 @@ function invite() {
 
 <template>
   <header class="flex min-w-0 shrink-0 items-center gap-2 border-b border-current/10 px-3 py-2.5 sm:px-4">
-    <button
-      type="button"
-      class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition hover:bg-current/10 lg:hidden"
-      :aria-label="$t('chat.a11yOpenRooms')"
-      @click="$emit('open-sidebar')"
-    >
-      <font-awesome-icon icon="bars" />
-    </button>
 
     <div class="min-w-0 flex-1">
       <h2 class="truncate text-lg font-bold leading-tight">

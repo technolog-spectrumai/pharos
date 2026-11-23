@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from "vue";
-import { RouterView, RouterLink, useRoute, useRouter } from "vue-router";
+import { RouterView, RouterLink, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useI18n } from "vue-i18n";
 import { useUserStore } from "./stores/user";
@@ -8,6 +8,8 @@ import { useChatStore } from "./stores/chat";
 import { openLink } from "./deeplink";
 import IdleLockWarning from "./components/IdleLockWarning.vue";
 import TorIndicator from "./components/TorIndicator.vue";
+import AppDrawer from "./components/AppDrawer.vue";
+import { drawerOpen } from "./stores/ui";
 import PinPadImpl from "./components/PinPad.vue";
 import { appIcon, barIcon } from "./assets/logos";
 import { brand, policy } from "./config/app";
@@ -19,8 +21,6 @@ import { OyaButton, OyaTextField } from "petalite/primitives";
 const PinPad = PinPadImpl;
 
 const darkMode = ref(true);
-const menuOpen = ref(false);
-const route = useRoute();
 const { t } = useI18n({ useScope: "global" });
 
 // Class-based dark mode: toggle `.dark` on <html> so every `dark:` utility across the
@@ -264,11 +264,6 @@ watch(avatarDataUrl, (avatar) => {
 // Files tab attention dot: an incoming file offer is waiting for accept/decline.
 const fileShare = chatStore.fileShare;
 
-// Close menu on navigation
-watch(() => route.path, () => {
-  menuOpen.value = false;
-});
-
 onBeforeUnmount(() => {
   idleLock.value?.stop();
   idleLock.value = null;
@@ -415,62 +410,16 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="flex h-9 w-9 items-center justify-center rounded-lg border border-current/15 transition hover:opacity-70"
-            :aria-label="menuOpen ? $t('nav.closeMenu') : $t('nav.openMenu')"
-            @click="menuOpen = !menuOpen"
+            :aria-label="$t('nav.openMenu')"
+            data-testid="app-menu"
+            @click="drawerOpen = true"
           >
-            <font-awesome-icon :icon="menuOpen ? 'xmark' : 'bars'" />
+            <font-awesome-icon icon="bars" />
           </button>
         </div>
 
       </div>
 
-      <!-- Mobile dropdown -->
-      <Transition
-        enter-active-class="transition-all duration-200 ease-out"
-        enter-from-class="opacity-0 -translate-y-2"
-        enter-to-class="opacity-100 translate-y-0"
-        leave-active-class="transition-all duration-150 ease-in"
-        leave-from-class="opacity-100 translate-y-0"
-        leave-to-class="opacity-0 -translate-y-2"
-      >
-        <div
-          v-if="menuOpen"
-          class="lg:hidden border-t divide-y divide-current/10 bg-header-bg-light border-accent-2 dark:bg-header-bg-dark dark:border-accent-1"
-        >
-          <RouterLink v-if="isTabVisible('chat')" to="/chat" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="comments" class="w-4 text-center" />
-            {{ $t('nav.chat') }}
-          </RouterLink>
-          <RouterLink v-if="isTabVisible('files')" to="/files" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="file-arrow-up" class="w-4 text-center" />
-            {{ $t('nav.files') }}
-            <span
-              v-if="fileShare.state.value === 'incoming'"
-              class="h-2 w-2 animate-pulse rounded-full bg-warn-dark"
-            />
-          </RouterLink>
-          <RouterLink to="/friends" class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition">
-            <font-awesome-icon icon="user-group" class="w-4 text-center" />
-            {{ $t('nav.friends') }}
-          </RouterLink>
-          <RouterLink
-            to="/config"
-            class="flex items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-          >
-            <font-awesome-icon icon="gear" class="w-4 text-center" />
-            {{ $t('nav.settings') }}
-          </RouterLink>
-
-          <button
-            type="button"
-            class="flex w-full items-center gap-3 px-5 py-3.5 text-sm hover:opacity-70 transition"
-            @click="darkMode = !darkMode"
-          >
-            <font-awesome-icon :icon="darkMode ? 'sun' : 'moon'" class="w-4 text-center" />
-            {{ darkMode ? $t('nav.lightMode') : $t('nav.darkMode') }}
-          </button>
-        </div>
-      </Transition>
     </header>
 
     <!-- Main — THE scroll container of the app: every routed view that outgrows
@@ -491,6 +440,9 @@ onBeforeUnmount(() => {
     >
       <p class="opacity-90">{{ brand.copyright }}</p>
     </footer>
+
+    <!-- The one menu (phones and tablets): rooms, then the app's pages. -->
+    <AppDrawer v-if="gateMode === 'ready'" v-model:dark-mode="darkMode" />
 
     <!-- Pre-lock countdown: any activity dismisses it (the window-level activity
          listeners fire first and clear the watcher's warned flag) -->

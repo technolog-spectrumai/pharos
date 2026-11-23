@@ -147,6 +147,7 @@ export default {
     offlineCleared: "Wyczyszczono dane offline.",
   },
   chat: {
+    rooms: "Pokoje",
     recordVoice: "Nagraj wiadomość głosową",
     stopRecording: "Zatrzymaj nagrywanie",
     resetEncryption: "Zresetuj szyfrowanie",

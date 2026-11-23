@@ -25,13 +25,21 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 
-const p2p = { currentUserName: ref(""), myAvatar: ref("") };
+const p2p = {
+  currentUserName: ref(""), myAvatar: ref(""),
+  currentRoom: ref(null), participants: ref([]), p2pRooms: ref([]), openP2pRoom: vi.fn(),
+};
 const fileShare = { state: ref("idle") };
 const chatStore = {
   syncRuntimeIdentity: vi.fn(async () => {}),
   init: vi.fn(async () => {}),
   p2p,
   fileShare,
+  // What the menu drawer reads once open: the rooms controller and room state.
+  rooms: {
+    createOpen: ref(false), joinOpen: ref(false), infoOpen: ref(false), deleteOpen: ref(false),
+    openCreate: vi.fn(), openJoin: vi.fn(), openInfo: vi.fn(), openDeleteConfirm: vi.fn(),
+  },
 };
 vi.mock("../../src/stores/chat", () => ({ useChatStore: () => chatStore }));
 

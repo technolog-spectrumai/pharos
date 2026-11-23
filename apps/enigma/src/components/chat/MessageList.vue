@@ -4,9 +4,9 @@ import { OyaButton, OyaEmptyState } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 import ChatBubble from "../ChatBubble.vue";
+import { drawerOpen } from "../../stores/ui";
 
 const props = defineProps<{ channel: ChatChannel; controller: P2pRoomsController }>();
-defineEmits<{ "open-sidebar": [] }>();
 const { currentRoom, messages, participants, p2pRooms } = props.channel;
 
 const el = ref<HTMLElement | null>(null);
@@ -43,7 +43,7 @@ const alone = computed(() => !!currentRoom.value && participants.value.length <=
     <OyaEmptyState v-if="!currentRoom" icon="comments" size="lg" class="h-full">
       {{ $t("chat.emptyHint") }}
       <template #action>
-        <OyaButton class="mt-2 lg:hidden" @click="$emit('open-sidebar')">{{ $t("chat.selectARoom") }}</OyaButton>
+        <OyaButton class="mt-2 lg:hidden" @click="drawerOpen = true">{{ $t("chat.selectARoom") }}</OyaButton>
       </template>
     </OyaEmptyState>
 

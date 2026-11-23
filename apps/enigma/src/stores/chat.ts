@@ -13,6 +13,7 @@ import {
 import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useInviteAdmit } from "../components/chat/useInviteAdmit";
+import { useP2pRooms } from "../components/chat/useP2pRooms";
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
@@ -27,6 +28,9 @@ function createChatStore() {
   // happens to be in the app, and a build that could mint invitations but not
   // honour them would strand every one it issued.
   const inviteAdmit = useInviteAdmit(p2p);
+  // The rooms controller (create, join, info, delete): one for the app, so the
+  // menu drawer can open a room or a dialog from any page.
+  const rooms = useP2pRooms(p2p);
   let initialized = false;
   /** App-start bootstrap: load the saved room list and auto-reopen the most recent
    *  room. Rejoining passes the room's persisted peer NodeIds, so peers whose
@@ -51,7 +55,7 @@ function createChatStore() {
   }
 
   return {
-    p2p, fileShare, inviteAdmit,
+    p2p, fileShare, inviteAdmit, rooms,
     init,
     syncRuntimeIdentity, applyRuntimeProfile, clearLocalChatState,
   };
