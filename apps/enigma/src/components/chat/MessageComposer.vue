@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from "vue";
+import { ref, computed, nextTick, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { OyaButton, OyaTextArea } from "petalite/primitives";
 import type { ChatChannel } from "rakotis";
 import AttachmentPreview from "./AttachmentPreview.vue";
 import EmojiPicker from "./EmojiPicker.vue";
@@ -87,6 +86,17 @@ async function send() {
     draft.value = "";
   }
 }
+// The field grows with what is typed, up to a few lines, as in Signal.
+const field = ref<HTMLTextAreaElement | null>(null);
+function grow() {
+  const el = field.value;
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+}
+watch(draft, () => nextTick(grow));
+const hasContent = computed(() => !!draft.value.trim() || !!pending.value);
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
@@ -96,7 +106,7 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="border-t border-current/10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:p-4 bg-bubble-bg-light dark:bg-bubble-bg-dark">
+  <div class="shrink-0 border-t border-current/10 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-3 bg-bubble-bg-light dark:bg-bubble-bg-dark">
     <AttachmentPreview v-if="pending" :pending="pending" @clear="clearPending" />
 
     <div v-if="uploadingImage" class="mb-2 flex items-center gap-2 text-xs opacity-60">
@@ -110,17 +120,10 @@ function onKeydown(e: KeyboardEvent) {
       <span>{{ uploadProgress }}%</span>
     </div>
 
-    <!-- One row of controls. On a phone the text field takes the first line on
-         its own and the buttons sit under it; from sm up everything is one row. -->
-    <div class="flex flex-wrap items-end gap-2 sm:flex-nowrap sm:gap-3">
-      <OyaTextArea
-        v-model="draft"
-        :rows="1"
-        :placeholder="placeholder"
-        :disabled="!ready"
-        class="order-first max-h-32 min-h-[2.75rem] w-full text-sm sm:order-none sm:w-auto sm:flex-1"
-        @keydown="onKeydown"
-      />
+    <!-- Signal's composer: attach, a rounded field with the emoji button inside it,
+         and one round button that records a voice note while the field is empty
+         and sends once there is something to send. -->
+    <div class="flex items-end gap-2">
       <input
         ref="imageFileInput"
         type="file"
@@ -131,25 +134,45 @@ function onKeydown(e: KeyboardEvent) {
       <button
         type="button"
         :disabled="!ready || uploadingImage"
-        :class="!ready ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80'"
-        class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-accent-2 text-text-main-light transition sm:-order-1 dark:border-accent-1 dark:text-text-main-dark"
+        :class="!ready ? 'opacity-40 cursor-not-allowed' : 'hover:bg-current/10'"
+        class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg transition"
         :title="$t('chat.sendImage')"
         :aria-label="$t('chat.sendImage')"
         @click="imageFileInput?.click()"
       >
-        <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'image'" :spin="uploadingImage" />
+        <font-awesome-icon :icon="uploadingImage ? 'spinner' : 'plus'" :spin="uploadingImage" />
       </button>
-      <VoiceRecorderButton class="sm:-order-1" :disabled="!ready" @staged="onVoiceStaged" />
-      <EmojiPicker class="sm:-order-1" :disabled="!ready" @select="draft += $event" />
-      <OyaButton
+
+      <div
+        class="flex min-w-0 flex-1 items-end rounded-3xl bg-black/5 pl-4 pr-1 dark:bg-white/10"
+        :class="{ 'opacity-50': !ready }"
+      >
+        <textarea
+          ref="field"
+          v-model="draft"
+          rows="1"
+          :placeholder="placeholder"
+          :disabled="!ready"
+          class="max-h-32 min-h-[2.75rem] min-w-0 flex-1 resize-none bg-transparent py-3 text-[15px] leading-snug outline-none placeholder:opacity-50"
+          data-testid="composer-field"
+          @keydown="onKeydown"
+        />
+        <EmojiPicker bare :disabled="!ready" class="mb-1" @select="draft += $event" />
+      </div>
+
+      <button
+        v-if="hasContent"
         type="button"
-        class="ml-auto shrink-0 sm:ml-0"
         :disabled="!canSend"
-        :class="{ 'opacity-40 cursor-not-allowed': !canSend }"
+        class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#4f5bc4] text-white transition hover:opacity-90 disabled:opacity-40"
+        :title="$t('chat.send')"
+        :aria-label="$t('chat.send')"
+        data-testid="send-button"
         @click="send"
       >
-        <font-awesome-icon icon="paper-plane" />{{ $t("chat.send") }}
-      </OyaButton>
+        <font-awesome-icon icon="paper-plane" />
+      </button>
+      <VoiceRecorderButton v-else round :disabled="!ready" @staged="onVoiceStaged" />
     </div>
   </div>
 </template>

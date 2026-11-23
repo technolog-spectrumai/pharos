@@ -53,7 +53,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
 </script>
 
 <template>
-  <div class="grid h-full min-h-0 w-full gap-4 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)_16rem]">
+  <div class="grid h-full min-h-0 w-full grid-cols-[minmax(0,1fr)] gap-4 overflow-hidden lg:grid-cols-[16rem_minmax(0,1fr)_16rem]">
     <!-- Rooms sidebar (desktop) -->
     <aside
       class="hidden min-h-0 flex-col overflow-hidden rounded-lg border shadow-md lg:flex bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
@@ -68,7 +68,7 @@ watch(currentRoom, () => (sidebarOpen.value = false));
 
     <!-- Chatbox -->
     <section
-      class="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
+      class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border shadow-md bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
       <ChatHeader :channel="channel" :controller="p2p" @open-sidebar="sidebarOpen = true" />
       <ObserverBanner v-if="currentRoom && !isParticipant" :channel="channel" />

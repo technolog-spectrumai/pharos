@@ -58,7 +58,9 @@ const textarea = (w: ReturnType<typeof mount>) => w.get("textarea");
 // The layout may put a Send button in a phone action row and another at the
 // end of the wide row (CSS picks which shows), so these helpers do not assume
 // there is only one: every Send button must share the same gate.
-const sendButtons = (w: ReturnType<typeof mount>) => w.findAll("button").filter((b) => b.text() === "Send");
+// Signal's round button: a mic while the field is empty, Send once there is
+// something to send (labelled by aria-label; it shows only an arrow).
+const sendButtons = (w: ReturnType<typeof mount>) => w.findAll('button[aria-label="Send"]');
 const sendButton = (w: ReturnType<typeof mount>) => {
   const all = sendButtons(w);
   return all[all.length - 1]!;
@@ -129,12 +131,14 @@ describe("MessageComposer — placeholder and gates", () => {
     expect(emojiButton(w).attributes("disabled")).toBeUndefined();
   });
 
-  it("offers Send, labelled, and keeps every Send button behind the same gate", async () => {
+  it("shows the mic while empty and a labelled Send once there is text", async () => {
     const { w } = mountComposer();
-    expect(sendButtons(w).length).toBeGreaterThan(0);
-    for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeDefined();
+    expect(sendButtons(w)).toHaveLength(0);
+    expect(w.find('button[aria-label="Record voice message"]').exists()).toBe(true);
     await textarea(w).setValue("hi");
+    expect(sendButtons(w)).toHaveLength(1);
     for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeUndefined();
+    expect(w.find('button[aria-label="Record voice message"]').exists()).toBe(false);
   });
 
   it("invites a message when everything is ready", () => {
@@ -173,7 +177,7 @@ describe("MessageComposer — sending text", () => {
   it("refuses a blank message", async () => {
     const { w, ch } = mountComposer();
     await textarea(w).setValue("   ");
-    for (const b of sendButtons(w)) expect(b.attributes("disabled")).toBeDefined();
+    expect(sendButtons(w)).toHaveLength(0);
     await textarea(w).trigger("keydown", { key: "Enter" });
     await settle();
     expect(ch.sendMessage).not.toHaveBeenCalled();
@@ -207,7 +211,7 @@ describe("MessageComposer — attachments", () => {
 
   it("stages a picked image as a preview, which alone makes the message sendable", async () => {
     const { w } = mountComposer();
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
+    expect(sendButtons(w)).toHaveLength(0);
     await pickImage(w, photo());
     expect(w.text()).toContain("Image ready to send");
     expect(w.text()).toContain("cat.png");
@@ -312,7 +316,7 @@ describe("MessageComposer — attachments", () => {
     await w.findAll("button").find((b) => b.text().includes("Cancel"))!.trigger("click");
     expect(revokeObjectURL).toHaveBeenCalledWith(url);
     expect(w.text()).not.toContain("Image ready to send");
-    expect(sendButton(w).attributes("disabled")).toBeDefined();
+    expect(sendButtons(w)).toHaveLength(0);
   });
 
   it("replaces a staged attachment with the next one, freeing the first", async () => {

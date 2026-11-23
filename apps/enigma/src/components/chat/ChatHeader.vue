@@ -51,7 +51,7 @@ function invite() {
 </script>
 
 <template>
-  <header class="flex items-center gap-2 border-b border-current/10 px-3 py-2.5 sm:px-4">
+  <header class="flex min-w-0 shrink-0 items-center gap-2 border-b border-current/10 px-3 py-2.5 sm:px-4">
     <button
       type="button"
       class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition hover:bg-current/10 lg:hidden"

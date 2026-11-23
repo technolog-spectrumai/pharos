@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-defineProps<{ disabled?: boolean }>();
+// `bare`: a borderless icon inside the composer's field, its panel opening to the left.
+defineProps<{ disabled?: boolean; bare?: boolean }>();
 const emit = defineEmits<{ select: [string] }>();
 
 const open = ref(false);
@@ -30,10 +31,11 @@ function pick(e: string) {
       :class="[
         disabled ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
         open ? 'bg-primary-bg-light dark:bg-primary-bg-dark' : '',
-        'border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark',
+        bare ? 'h-9 w-9 rounded-full' : 'h-11 w-11 rounded-lg border border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark',
       ]"
-      class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-lg transition"
+      class="inline-flex shrink-0 items-center justify-center text-lg transition"
       title="Emoji"
+      aria-label="Emoji"
       @click="open = !open"
     >
       😊
@@ -42,7 +44,8 @@ function pick(e: string) {
     <div v-if="open" class="fixed inset-0 z-40" @click="open = false" />
     <div
       v-if="open"
-      class="absolute bottom-full mb-2 left-0 z-50 w-72 overflow-hidden rounded-xl border shadow-xl bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
+      :class="bare ? 'right-0' : 'left-0'"
+      class="absolute bottom-full mb-2 z-50 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border shadow-xl bg-bubble-bg-light border-accent-2 dark:bg-bubble-bg-dark dark:border-accent-1"
     >
       <div class="flex overflow-x-auto border-b border-accent-2 bg-primary-bg-light dark:border-accent-1 dark:bg-primary-bg-dark">
         <button

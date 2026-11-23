@@ -5,7 +5,8 @@ import { useI18n } from "vue-i18n";
 
 const { t } = useI18n();
 
-defineProps<{ disabled?: boolean }>();
+// `round`: the composer's round accent button (Signal's mic).
+defineProps<{ disabled?: boolean; round?: boolean }>();
 const emit = defineEmits<{ staged: [Blob, string] }>();
 
 const isRecording = ref(false);
@@ -89,13 +90,16 @@ onUnmounted(stopTimer);
   <button
     :disabled="disabled"
     :class="[
-      isRecording
-        ? 'border-warn-light text-warn-light dark:border-warn-dark dark:text-warn-dark animate-pulse'
-        : 'border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark',
+      round
+        ? (isRecording ? 'bg-warn-dark text-white animate-pulse' : 'bg-[#4f5bc4] text-white') + ' h-11 min-w-11 rounded-full px-3'
+        : (isRecording
+          ? 'border-warn-light text-warn-light dark:border-warn-dark dark:text-warn-dark animate-pulse'
+          : 'border-accent-2 text-text-main-light dark:border-accent-1 dark:text-text-main-dark') + ' h-11 rounded-lg border px-2.5',
       disabled ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
     ]"
-    class="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 transition"
-    :title="isRecording ? 'Stop recording' : 'Record voice message'"
+    class="inline-flex shrink-0 items-center justify-center gap-1.5 transition"
+    :title="isRecording ? t('chat.stopRecording') : t('chat.recordVoice')"
+    :aria-label="isRecording ? t('chat.stopRecording') : t('chat.recordVoice')"
     @click="toggle"
   >
     <font-awesome-icon :icon="isRecording ? 'stop' : 'microphone'" class="text-sm" />

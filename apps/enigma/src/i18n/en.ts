@@ -147,6 +147,8 @@ export default {
     offlineCleared: "Offline data cleared.",
   },
   chat: {
+    recordVoice: "Record voice message",
+    stopRecording: "Stop recording",
     resetEncryption: "Reset encryption",
     invite: "Invite",
     roomMenu: "Room menu",
