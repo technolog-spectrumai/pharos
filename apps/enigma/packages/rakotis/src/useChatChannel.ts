@@ -859,16 +859,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     }
 
     if (type === "mls_app" && data.ciphertext) {
-      if (data.device_id === mlsIdentity.value) return;
+      // Sealed sender: the frame's outside says nothing about who sent it; who
+      // (device id and name) and the message id are read after decryption.
       // Somebody else is talking in here. Noted even when we cannot read it —
       // especially then, because being unable to read it is the whole point.
       if (!viaMailbox) sawForeignTraffic = true;
-      if (options.rosterNotices && typeof data.device_id === "string" && typeof data.sender_name === "string" && data.sender_name) {
-        namesSeen.set(data.device_id, data.sender_name);
-        namesSeen.set(userPartOf(data.device_id), data.sender_name);
-      }
-      const senderName = (data.sender_name as string) || (data.user as string) || (data.device_id as string) || "Unknown";
-      const sender = participantForName(senderName);
       if (mlsStatus.value === "ready" && currentRoom.value) {
         let plaintext: Uint8Array | null = null;
         try {
@@ -883,20 +878,26 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
           return;
         }
         if (plaintext) {
-          const text = new TextDecoder().decode(plaintext);
-          const avatarUrl = (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null;
-          const senderLeafId = (data.device_id as string) || undefined;
+          const raw = new TextDecoder().decode(plaintext);
+          let inner: Record<string, unknown> | null = null;
+          try { inner = JSON.parse(raw); } catch (_) {}
+          const from = (inner?.from ?? {}) as { id?: unknown; name?: unknown };
+          const senderLeafId = typeof from.id === "string" && from.id ? from.id : undefined;
+          if (senderLeafId === mlsIdentity.value) return; // our own, come back
+          const senderName = (typeof from.name === "string" && from.name) || senderLeafId || "Unknown";
+          if (options.rosterNotices && senderLeafId && typeof from.name === "string" && from.name) {
+            namesSeen.set(senderLeafId, from.name);
+            namesSeen.set(userPartOf(senderLeafId), from.name);
+          }
+          const avatarUrl = participantForName(senderName)?.avatar_url ?? null;
           // "Self" spans the whole user: a message from our OTHER linked device
           // renders as ours (right-aligned, no unread bump).
-          const isSelf = senderName === currentUserName.value ||
-            (!!senderLeafId && sameUser(senderLeafId, mlsIdentity.value));
-          let inner: Record<string, unknown> | null = null;
-          try { inner = JSON.parse(text); } catch (_) {}
-          // Sender-minted stable id (inner = encrypted, preferred; outer covers
-          // raw-text messages) — the cross-device dedupe key. Old builds send
-          // neither and fall back to a local nanoid (no dedupe, still renders).
-          const rxId = (typeof inner?.msg_id === "string" && inner.msg_id) ||
-            (typeof data.msg_id === "string" && data.msg_id) || nanoid();
+          const isSelf = !!senderLeafId && sameUser(senderLeafId, mlsIdentity.value);
+          // A text message is {type:"text", text}; anything that is not JSON is
+          // shown as it is.
+          const text = inner?.type === "text" && typeof inner.text === "string" ? inner.text : raw;
+          // The sender-minted id (inside the encryption): the dedupe key.
+          const rxId = (typeof inner?.msg_id === "string" && inner.msg_id) || nanoid();
 
           if (inner?.type === "presence" && inner.device_id) {
             // An old "I am here" from the mailbox says nothing about now; a fresh one does
@@ -973,8 +974,8 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
         // to the live view, NOT through pushMessage, so it is never persisted to
         // chat:log (and never replayed to a linked device or restored on reload).
         messages.value.push({
-          id: nanoid(), type: "mls_app", user: senderName, initials: initials(senderName),
-          avatar_url: (data.sender_avatar_url as string) ?? sender?.avatar_url ?? null,
+          id: nanoid(), type: "mls_app", user: "…", initials: "…",
+          avatar_url: null,
           content: "🔒 [encrypted — session not ready]", participant_type: "human",
           self: false, encrypted: true, timestamp: new Date(),
         });
@@ -1475,14 +1476,12 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
    *  sender-minted id that keeps linked devices' timelines deduplicated without
    *  leaking anything to the topic. Control payloads pass none. */
   async function sendEncryptedMedia(innerType: string, payload: Record<string, unknown>, msgId?: string) {
-    const inner = msgId ? { type: innerType, msg_id: msgId, ...payload } : { type: innerType, ...payload };
+    const from = { id: mlsIdentity.value, name: currentUserName.value };
+    const inner = msgId ? { type: innerType, msg_id: msgId, from, ...payload } : { type: innerType, from, ...payload };
     const ct = await cryptoService.encrypt(currentRoom.value!.slug, mlsIdentity.value, JSON.stringify(inner));
     if (!ct) throw new Error("Encryption failed");
-    send({
-      type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value,
-      user: currentUserName.value, sender_name: currentUserName.value,
-      sender_avatar_url: myAvatarOrNull(),
-    });
+    // Sealed sender: only the ciphertext travels outside.
+    send({ type: "mls_app", ciphertext: bytesToBase64(ct) });
   }
 
   /** Send a data-sync control/data message over this channel's MLS group. */
@@ -1532,14 +1531,12 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
       return;
     }
     {
-      const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, text);
+      // Sealed sender: who sent it and its id travel inside the encryption.
+      const msgId = nanoid();
+      const sealed = JSON.stringify({ type: "text", text, msg_id: msgId, from: { id: mlsIdentity.value, name: currentUserName.value } });
+      const ct = await cryptoService.encrypt(currentRoom.value.slug, mlsIdentity.value, sealed);
       if (ct) {
-        // Text stays RAW inside the ciphertext (old-build receivers render it
-        // as-is), so its stable id rides the outer envelope. msg_id is a random
-        // nanoid — it correlates nothing an observer doesn't already see as a
-        // discrete gossip frame.
-        const msgId = nanoid();
-        send({ type: "mls_app", ciphertext: bytesToBase64(ct), device_id: mlsIdentity.value, user: currentUserName.value, sender_name: currentUserName.value, sender_avatar_url: myAvatarOrNull(), msg_id: msgId });
+        send({ type: "mls_app", ciphertext: bytesToBase64(ct) });
         pushMessage({ id: msgId, type: "mls_app", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: text, participant_type: "human", self: true, encrypted: true, timestamp: new Date(), ...threadFields(text, mlsIdentity.value, true) }, mlsIdentity.value);
       } else {
         messages.value.push(sysMsg("chat.sys.encryptFailed", "Encryption failed — message not sent.", undefined, "system_error"));
