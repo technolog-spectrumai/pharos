@@ -577,6 +577,7 @@ pub async fn cancel_join(state: &MeshState) {
 /// Send one frame to every member: down every live link, and into the outbox
 /// of every wanted member without one.
 pub async fn broadcast(state: &MeshState, slug: &str, payload: String) -> Result<()> {
+    let payload = pad(payload);
     let room = room_of(state, slug).await.ok_or_else(|| anyhow!("no such room"))?;
     let targets: Vec<(String, u64, Writer)> =
         room.links.lock().await.iter().map(|(p, l)| (p.clone(), l.seq, l.write.clone())).collect();
@@ -642,6 +643,26 @@ pub(crate) async fn dial_kind(
     let client = client_of(state).await?;
     let hello = Hello { name: String::new(), peer_id: load_or_create_peer_id(app)?, kind: Some(kind.to_string()), onion: String::new() };
     dial(&client, onion, &hello).await
+}
+
+/// Pad a frame to a fixed size so its length says little about what it carries:
+/// 512 B, 2 KiB, 8 KiB, then whole multiples of 32 KiB (capped at MAX_FRAME).
+/// The padding is trailing spaces, which every JSON parser ignores, so the
+/// receiving side needs nothing.
+pub(crate) fn padded_len(n: usize) -> usize {
+    let size = match n {
+        0..=512 => 512,
+        513..=2048 => 2048,
+        2049..=8192 => 8192,
+        _ => n.div_ceil(32 * 1024) * 32 * 1024,
+    };
+    size.min(MAX_FRAME).max(n)
+}
+
+fn pad(mut payload: String) -> String {
+    let target = padded_len(payload.len());
+    payload.extend(std::iter::repeat_n(' ', target - payload.len()));
+    payload
 }
 
 // ── tasks ─────────────────────────────────────────────────────────────────────
@@ -873,6 +894,20 @@ mod tests {
         assert_eq!(room_for("a"), room_for("a"));
         assert_ne!(room_for("a"), room_for("b"));
         assert_eq!(nickname_for("a").unwrap().to_string(), nickname_for("a").unwrap().to_string());
+    }
+
+    #[test]
+    fn frames_are_padded_to_buckets_and_still_parse() {
+        assert_eq!(padded_len(1), 512);
+        assert_eq!(padded_len(512), 512);
+        assert_eq!(padded_len(513), 2048);
+        assert_eq!(padded_len(5000), 8192);
+        assert_eq!(padded_len(8193), 32 * 1024);
+        assert_eq!(padded_len(40_000), 64 * 1024);
+        let p = pad(r#"{"type":"mls_app","ciphertext":"x"}"#.to_string());
+        assert_eq!(p.len(), 512);
+        let v: serde_json::Value = serde_json::from_str(&p).unwrap();
+        assert_eq!(v["type"], "mls_app");
     }
 
     #[test]

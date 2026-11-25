@@ -58,7 +58,7 @@ Gaps found while reviewing Enigma26 (technolog-spectrumai/enigma, `dev_mvp1`) be
 Sotha is the default meeting point and mailbox of a room; the mesh keeps working without it.
 The gap is kept small: Sotha only ever handles sealed, padded, steady traffic it cannot link to anyone.
 - [ ] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
-- [ ] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
+- [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
 - [ ] 8.A3 Tor client authorisation on member onions (part of 7.3)
 - [ ] 8.B1 Room mailbox ids and tokens from the MLS exporter, rotating weekly; Sotha keeps only hashes
 - [ ] 8.B2 Sotha endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
