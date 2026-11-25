@@ -59,12 +59,15 @@ Beacon is the default meeting point and mailbox of a room; the mesh keeps workin
 The gap is kept small: Beacon only ever handles sealed, padded, steady traffic it cannot link to anyone.
 - [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
-- [ ] 8.A3 Tor restricted discovery (client authorisation) on member onions (part of 7.3). arti features `restricted-discovery`, `experimental-api`, `keymgr` are on (builds). Pure Rust, same code on Android and desktop.
-  - [ ] a. For each other member's onion, make a discovery keypair in arti's keystore (`generate_service_discovery_key`); send the public half inside the MLS presence message
-  - [ ] b. Each room onion runs in restricted mode with `static_keys` = the members' keys (not `key_dirs`: no file watching, which is shaky on Android); `reconfigure` on every join/leave
-  - [ ] c. Door: a newcomer has no key yet, so redemption goes to a separate short-lived open onion per pending invitation (or Beacon, 8.C); it closes when the invitation is used or expires
-  - [ ] d. Expect: adding someone takes seconds–minutes (descriptor republish is rate-limited); removal is not instant, MLS still keeps them out of the content
-  - [ ] e. Test on a real phone: launch, reconfigure, reconnect after a member is added
+- [ ] 8.A3 (later, optional) Tor restricted discovery on **Beacon's** onion, off by default; member onions stay open
+  - Beacon: `restricted_discovery = true` in its config → arti `key_dirs` = `<data>/clients/*.auth` (plain Linux, file watching is fine there); a client is added by dropping its key file in
+  - Phone: when pairing with a restricted Beacon (8.C2), make a discovery key for its onion (arti `generate_service_discovery_key`, needs `experimental-api` + `keymgr`) and show it for the owner to add
+  - Checked against the design — no clash, with these rules:
+    - Beacon cannot tell which authorised client opened its descriptor, so fresh circuits per post (8.B3) still don't link posts
+    - Mailbox ids/tokens (8.B1) still gate every mailbox; restricted discovery is an extra DoS layer, not the access control
+    - A room member without a key just can't use that Beacon: they stay on the mesh (8.C3 already works without Beacon), so the room never depends on it
+    - Invitation redemption goes to the inviter's onion, not Beacon, so newcomers are unaffected; but Beacon can't be the "door" in restricted mode, and `/v1/pairing` only works for authorised clients
+    - Adding a client takes seconds–minutes (descriptor republish is rate-limited); removing one isn't instant — tokens rotate weekly anyway
 - [x] 8.B1 Room mailbox ids and tokens from the MLS exporter (current epoch + week number, so they move with every commit and every week; removed members cannot derive them); Beacon keeps only hashes — `mls_mailbox`
 - [ ] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
 - [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
