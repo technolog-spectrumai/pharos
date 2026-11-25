@@ -60,7 +60,7 @@ The gap is kept small: Beacon only ever handles sealed, padded, steady traffic i
 - [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
 - [ ] 8.A3 Tor client authorisation on member onions (part of 7.3)
-- [ ] 8.B1 Room mailbox ids and tokens from the MLS exporter, rotating weekly; Beacon keeps only hashes
+- [x] 8.B1 Room mailbox ids and tokens from the MLS exporter (current epoch + week number, so they move with every commit and every week; removed members cannot derive them); Beacon keeps only hashes — `mls_mailbox`
 - [ ] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
 - [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
 - [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Beacon are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages

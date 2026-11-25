@@ -2127,6 +2127,7 @@ dependencies = [
  "enigmatite",
  "futures-lite",
  "gervasius",
+ "hex",
  "hound",
  "postcard",
  "protasius",

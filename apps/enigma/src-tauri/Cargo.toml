@@ -51,6 +51,7 @@ protasius = { path = "../../../crates/protasius" }
 # envelopes in vault.rs.
 gervasius = { path = "../../../crates/gervasius" }
 zeroize = "1"
+hex = "0.4"
 cpal = "0.15"
 hound = "3"
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }

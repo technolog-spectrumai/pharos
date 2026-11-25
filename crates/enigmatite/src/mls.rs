@@ -161,6 +161,15 @@ impl Sessions {
         self.with(store, at, false, |s| s.members())
     }
 
+    /// A secret from the current epoch's MLS exporter (RFC 9420): every member at
+    /// this epoch derives the same bytes, a removed member cannot.
+    ///
+    /// # Errors
+    /// When the session or its group is not there.
+    pub fn export_secret(&self, store: &dyn Store, at: At<'_>, label: &str, context: &[u8], len: usize) -> Result<Vec<u8>, String> {
+        self.with(store, at, false, |s| s.export_secret(label, context, len))
+    }
+
     /// Removes a member: the commit to send.
     ///
     /// # Errors

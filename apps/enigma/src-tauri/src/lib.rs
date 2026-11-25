@@ -859,6 +859,46 @@ fn mls_encrypt(
     mls_step(&app, &config, &sessions, &room, &identity, |s, st, at| s.encrypt(st, at, plaintext))
 }
 
+/// Seconds in a mailbox period: the room's Beacon mailbox moves every week.
+const MAILBOX_WEEK: u64 = 7 * 24 * 3600;
+
+/// The room's Beacon mailbox for one week (8.B1): id and token from the current
+/// MLS epoch's exporter, so only members at this epoch can find or use it, and it
+/// moves with every commit and every week. Beacon only sees hashes of both.
+pub(crate) fn mailbox_for(secret: &[u8]) -> (String, String) {
+    let id = blake3::derive_key("enigma27 beacon mailbox id", secret);
+    let token = blake3::derive_key("enigma27 beacon mailbox token", secret);
+    (hex::encode(id), hex::encode(token))
+}
+
+#[derive(serde::Serialize)]
+struct Mailbox {
+    id: String,
+    token: String,
+    week: u64,
+}
+
+/// This week's mailbox (`week_offset` 0) or an earlier one (1 = last week), to
+/// drain what was posted before the week turned.
+#[tauri::command]
+fn mls_mailbox(
+    app: AppHandle,
+    config: State<AppConfigState>,
+    sessions: State<Sessions>,
+    room: String,
+    identity: String,
+    week_offset: Option<u64>,
+) -> Result<Mailbox, String> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+    let week = (now / MAILBOX_WEEK).saturating_sub(week_offset.unwrap_or(0));
+    let mut secret = mls_step(&app, &config, &sessions, &room, &identity, |s, st, at| {
+        s.export_secret(st, at, "enigma27/beacon/mailbox", &week.to_be_bytes(), 32)
+    })?;
+    let (id, token) = mailbox_for(&secret);
+    zeroize::Zeroize::zeroize(&mut secret);
+    Ok(Mailbox { id, token, week })
+}
+
 /// Remove a session from memory and wipe its on-disk state.
 #[tauri::command]
 fn mls_clear_state(
@@ -1133,6 +1173,7 @@ pub fn run() {
             mls_process_message,
             mls_encrypt,
             mls_clear_state,
+            mls_mailbox,
             mls_members,
             mls_remove_member,
             audio_start_recording,
@@ -1168,4 +1209,18 @@ pub fn run() {
                 tauri::async_runtime::block_on(mesh::shutdown(app_handle, &mesh_state));
             }
         });
+}
+
+#[cfg(test)]
+mod mailbox_tests {
+    use super::mailbox_for;
+
+    #[test]
+    fn mailbox_id_and_token_differ_and_follow_the_secret() {
+        let (id, token) = mailbox_for(&[7; 32]);
+        assert_eq!(id.len(), 64);
+        assert_ne!(id, token);
+        assert_eq!(mailbox_for(&[7; 32]).0, id);
+        assert_ne!(mailbox_for(&[8; 32]).0, id);
+    }
 }
