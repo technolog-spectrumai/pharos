@@ -1,6 +1,7 @@
 //! Beacon as a library: the parts `main.rs` wires together, so tests can serve
 //! a real Beacon on loopback.
 pub mod api;
+pub mod clients;
 pub mod config;
 pub mod diskcrypt;
 pub mod masterkey;

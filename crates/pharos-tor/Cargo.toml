@@ -17,6 +17,7 @@ tor-guardmgr = { version = "0.43", features = ["vanguards"] }
 tor-config = "0.43"
 tor-rtcompat = { version = "0.43", features = ["tokio", "rustls"] }
 tor-hsservice = "0.43"
+tor-config-path = { version = "0.43", optional = true }
 tor-hscrypto = "0.43"
 tor-llcrypto = "0.43"
 tor-cell = "0.43"
@@ -31,3 +32,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [dev-dependencies]
 pharos-rendezvous = { path = "../pharos-rendezvous" }
+
+[features]
+# Hosting an onion in restricted discovery mode (client authorisation): only
+# Beacon turns it on, and only when its config asks for it (8.A3).
+restricted-discovery = ["arti-client/restricted-discovery", "tor-hsservice/restricted-discovery", "dep:tor-config-path"]

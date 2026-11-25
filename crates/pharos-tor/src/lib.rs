@@ -79,6 +79,29 @@ impl Tor {
         finish(svc, rend).await
     }
 
+    /// Host an onion in restricted discovery mode: only clients whose discovery
+    /// key is in a `<name>.auth` file in `clients` can find it (arti watches the
+    /// folder, so adding a file takes effect without a restart, after the
+    /// descriptor is republished). An empty folder means nobody can reach it.
+    #[cfg(feature = "restricted-discovery")]
+    pub async fn host_restricted(&self, nickname: &str, clients: &std::path::Path) -> Result<Hosted> {
+        use tor_hsservice::config::restricted_discovery::DirectoryKeyProviderBuilder;
+        std::fs::create_dir_all(clients).with_context(|| format!("creating {}", clients.display()))?;
+        let nick = HsNickname::new(nickname.to_string()).map_err(|e| anyhow!("onion nickname {nickname:?}: {e}"))?;
+        let mut b = OnionServiceConfigBuilder::default();
+        b.nickname(nick);
+        let mut dir = DirectoryKeyProviderBuilder::default();
+        dir.path(tor_config_path::CfgPath::new_literal(clients));
+        b.restricted_discovery().enabled(true).key_dirs().access().push(dir);
+        let cfg = b.build().map_err(|e| anyhow!("onion config: {e}"))?;
+        let (svc, rend) = self
+            .client
+            .launch_onion_service(cfg)
+            .map_err(|e| anyhow!("launch onion service: {e}"))?
+            .ok_or_else(|| anyhow!("onion service disabled"))?;
+        finish(svc, rend).await
+    }
+
     /// Host an onion whose identity key is `expanded_secret` (64 bytes: clamped
     /// scalar ‖ hash prefix, as pharos-rendezvous derives it).
     pub async fn host_with_key(&self, nickname: &str, expanded_secret: [u8; 64]) -> Result<Hosted> {

@@ -7,8 +7,11 @@
 //!   beacon status [-c config.yaml]           row counts and the onion address
 //!   beacon backup [-c config.yaml] OUT       a consistent copy of the database
 //!   beacon code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
+//!   beacon allow  [-c config.yaml] NAME KEY  let a phone find it (restricted_discovery)
+//!   beacon deny   [-c config.yaml] NAME      take a phone off the list
+//!   beacon clients [-c config.yaml]          the phones on the list
 
-use beacon::{api, config, diskcrypt, masterkey, page, store};
+use beacon::{api, clients, config, diskcrypt, masterkey, page, store};
 
 use anyhow::{bail, Context, Result};
 use api::{AppState, Limiter};
@@ -81,8 +84,30 @@ fn run() -> Result<()> {
             println!("backed up to {out}; back up the master key separately");
             Ok(())
         }
+        "allow" => {
+            let (name, key) = match a.rest.as_slice() {
+                [n, k] => (n.as_str(), k.as_str()),
+                _ => bail!("allow needs a NAME and the phone's KEY"),
+            };
+            let cfg = load()?;
+            clients::allow(&cfg.clients_dir(), name, key)?;
+            println!("{name} is allowed{}", if cfg.restricted_discovery { "; it can find Beacon within minutes" } else { " (restricted_discovery is off, so everyone can find Beacon)" });
+            Ok(())
+        }
+        "deny" => {
+            let name = a.rest.first().context("deny needs a NAME")?;
+            clients::deny(&load()?.clients_dir(), name)?;
+            println!("{name} is off the list (it may still reach Beacon for a while)");
+            Ok(())
+        }
+        "clients" => {
+            for n in clients::list(&load()?.clients_dir())? {
+                println!("{n}");
+            }
+            Ok(())
+        }
         _ => {
-            let usage: Vec<&str> = include_str!("main.rs").lines().skip(2).take(7).map(|l| l.trim_start_matches("//!   ")).collect();
+            let usage: Vec<&str> = include_str!("main.rs").lines().skip(2).take(10).map(|l| l.trim_start_matches("//!   ")).collect();
             println!("Beacon {}: the optional Pharos helper, reached only over Tor.\n\nusage:\n  {}", env!("CARGO_PKG_VERSION"), usage.join("\n  "));
             Ok(())
         }
@@ -225,7 +250,15 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         let tor = pharos_tor::Tor::start(cfg.data_dir.join("tor-state"), cfg.data_dir.join("tor-cache"), true, pharos_tor::Vanguards::Full).await?;
         // The onion's keystore nickname keeps the former name (Proteus): it selects
         // the stored identity key, so changing it would change the address.
-        let mut hosted = tor.host("proteus").await?;
+        let mut hosted = if cfg.restricted_discovery {
+            let dir = cfg.clients_dir();
+            clients::prepare(&dir)?;
+            let n = clients::list(&dir)?.len();
+            eprintln!("beacon: restricted discovery on, {n} phone(s) allowed");
+            tor.host_restricted("proteus", &dir).await?
+        } else {
+            tor.host("proteus").await?
+        };
         std::fs::write(cfg.data_dir.join("onion.txt"), format!("{}\n", hosted.onion))?;
         eprintln!("beacon: serving on {}", hosted.onion);
         let app = with_page(app, &cfg, Some(&hosted.onion))?;

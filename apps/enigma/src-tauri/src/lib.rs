@@ -1177,6 +1177,7 @@ pub fn run() {
             mls_mailbox,
             beacon::beacon_post,
             beacon::beacon_fetch,
+            beacon::beacon_discovery_key,
             mls_members,
             mls_remove_member,
             audio_start_recording,

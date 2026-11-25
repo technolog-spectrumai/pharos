@@ -14,6 +14,11 @@ pub struct Config {
     pub name: String,
     /// Serve the page with the code for Enigma at `/` on the onion (3.8).
     pub page: bool,
+    /// Restricted discovery (Tor client authorisation, 8.A3): only phones whose
+    /// key was added with `beacon allow` can find the onion. Off by default.
+    /// It keeps strangers and floods away; mailbox tokens still guard each
+    /// mailbox. Phones without a key simply stay on the mesh.
+    pub restricted_discovery: bool,
     pub limits: Limits,
 }
 
@@ -65,6 +70,7 @@ impl Default for Config {
             master_key: PathBuf::from("/etc/beacon/master.key"),
             name: "Beacon".into(),
             page: true,
+            restricted_discovery: false,
             limits: Limits::default(),
         }
     }
@@ -99,5 +105,12 @@ mod tests {
         assert_eq!(c.limits.max_record_bytes, 2048);
         std::fs::write(&p, "data_dri: /x\n").unwrap();
         assert!(Config::load(&p).is_err());
+    }
+}
+
+impl Config {
+    /// Where the allowed phones' keys live, one `<name>.auth` each.
+    pub fn clients_dir(&self) -> PathBuf {
+        self.data_dir.join("clients")
     }
 }

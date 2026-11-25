@@ -59,9 +59,10 @@ Beacon is the default meeting point and mailbox of a room; the mesh keeps workin
 The gap is kept small: Beacon only ever handles sealed, padded, steady traffic it cannot link to anyone.
 - [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
-- [ ] 8.A3 (later, optional) Tor restricted discovery on **Beacon's** onion, off by default; member onions stay open
-  - Beacon: `restricted_discovery = true` in its config → arti `key_dirs` = `<data>/clients/*.auth` (plain Linux, file watching is fine there); a client is added by dropping its key file in
-  - Phone: when pairing with a restricted Beacon (8.C2), make a discovery key for its onion (arti `generate_service_discovery_key`, needs `experimental-api` + `keymgr`) and show it for the owner to add
+- [x] 8.A3 Tor restricted discovery on **Beacon's** onion, optional, off by default; member onions stay open
+  - [x] a. Beacon: `restricted_discovery: true` in its config → arti `key_dirs` = `<data>/clients/*.auth` (plain Linux, file watching is fine there); a client is added by dropping its key file in
+  - [x] b. Phone: `beacon_discovery_key(onion)` makes (once) or returns this phone's discovery key for a Beacon — the Settings screen that shows it comes with 8.C2. Make a discovery key for its onion (arti `generate_service_discovery_key`, needs `experimental-api` + `keymgr`) and show it for the owner to add
+  - [x] c. `beacon allow NAME KEY` / `deny NAME` / `clients`, keys in `<data>/clients/*.auth` (folder kept 0700)
   - Checked against the design — no clash, with these rules:
     - Beacon cannot tell which authorised client opened its descriptor, so fresh circuits per post (8.B3) still don't link posts
     - Mailbox ids/tokens (8.B1) still gate every mailbox; restricted discovery is an extra DoS layer, not the access control

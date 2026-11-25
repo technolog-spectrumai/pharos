@@ -147,3 +147,25 @@ mod tests {
         assert!(check_onion(&format!("{}.onion", "a".repeat(56))).is_ok());
     }
 }
+
+/// This phone's discovery key for a Beacon in restricted mode (8.A3), as the
+/// text its owner adds with `beacon allow NAME KEY`. Made once per Beacon and
+/// kept in arti's keystore, which uses it whenever it dials that onion; asking
+/// again gives the same key. Harmless for a Beacon that is not restricted.
+#[tauri::command]
+pub async fn beacon_discovery_key(state: State<'_, MeshState>, onion: String) -> Result<String, String> {
+    (async {
+        check_onion(&onion)?;
+        let hsid: arti_client::HsId = onion.parse().map_err(|e| anyhow!("{e}"))?;
+        let client = client_of(&state).await?;
+        let key = match client.get_service_discovery_key(hsid).map_err(|e| anyhow!("{e}"))? {
+            Some(k) => k,
+            None => client
+                .generate_service_discovery_key(arti_client::KeystoreSelector::Primary, hsid)
+                .map_err(|e| anyhow!("making the key: {e}"))?,
+        };
+        Ok(key.to_string())
+    })
+    .await
+    .map_err(|e: anyhow::Error| e.to_string())
+}
