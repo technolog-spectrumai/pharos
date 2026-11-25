@@ -24,7 +24,8 @@ const SEEN_MAX = 4000;
 /** What the engine needs of a server: post a body, read what came after an id (one page). */
 export interface ChatMailbox {
   post(body: Record<string, unknown>): Promise<void>;
-  fetch(after: number): Promise<{ id: number; body: string }[]>;
+  /** `room` is the room being caught up, for a server with a mailbox per room. */
+  fetch(after: number, room?: string): Promise<{ id: number; body: string }[]>;
   /** How often the room catches up while open (ms; default 30 s). */
   everyMs?: number;
 }
@@ -92,7 +93,7 @@ export async function catchUp(place: MailboxPlace, mb: ChatMailbox, room: string
   const frames: string[] = [];
   const nodes: string[] = [];
   for (;;) {
-    const page = await mb.fetch(after);
+    const page = await mb.fetch(after, room);
     for (const m of page) {
       after = Math.max(after, m.id);
       let v: Record<string, unknown>;

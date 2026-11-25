@@ -14,11 +14,26 @@ import type { AppRuntimeConfig } from "rakotis";
 import { useFileShare } from "../components/chat/useFileShare";
 import { useInviteAdmit } from "../components/chat/useInviteAdmit";
 import { useP2pRooms } from "../components/chat/useP2pRooms";
+import { beaconMailbox } from "../beaconMailbox";
+
+async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
 
 export type { Message, MlsStatus, P2pRoomEntry, ChatChannel } from "rakotis";
 
 function createChatStore() {
-  const p2p: ChatChannel = useChatChannel();
+  // Frames also go to the room's Beacon mailbox when the room has one (8.B3);
+  // without one the mailbox does nothing and the room is pure mesh.
+  // eslint-disable-next-line prefer-const
+  let p2p: ChatChannel;
+  const mailbox = beaconMailbox({
+    invoke: tauriInvoke,
+    beaconFor: (room) => p2p.p2pRooms.value.find((r) => r.room === room)?.beacon,
+    identity: () => p2p.mlsIdentity.value,
+  });
+  p2p = useChatChannel({ mailbox });
   // P2P file transfer rides the p2p channel's MLS group (onSync/sendSync seam).
   // Created here (once, for the app's lifetime) so incoming offers are caught
   // even while the Files modal is closed.

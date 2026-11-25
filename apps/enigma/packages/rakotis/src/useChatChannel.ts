@@ -37,6 +37,8 @@ export interface P2pRoomEntry {
   host?: boolean;
   /** Our own onion for this room (stable across restarts). */
   onion?: string;
+  /** The room's Beacon onion, if it has one (8.C): frames also go to its mailbox. */
+  beacon?: string;
 }
 
 const B32 = "abcdefghijklmnopqrstuvwxyz234567";
@@ -717,6 +719,9 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   async function handleMessage(data: Record<string, unknown>, viaMailbox = false) {
     const type = data.type as string;
     log("←", type);
+    // The same frame comes by the mesh and by Beacon: whichever is second is dropped
+    // (8.B4). Our own frames were noted when sent, so they are dropped too.
+    if (mailbox && currentRoom.value && placeRoom === currentRoom.value.slug && !viaMailbox) mailboxNote(place, JSON.stringify(data));
 
     // Nothing in the clear is shown: a frame anyone with a member's onion could
     // send would otherwise read like a chat message.

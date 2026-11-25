@@ -5,6 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+mod beacon;
 mod deeplink;
 // This device's Ed25519 key: the id invitations are sealed to and redeemed by.
 mod device;
@@ -1174,6 +1175,8 @@ pub fn run() {
             mls_encrypt,
             mls_clear_state,
             mls_mailbox,
+            beacon::beacon_post,
+            beacon::beacon_fetch,
             mls_members,
             mls_remove_member,
             audio_start_recording,

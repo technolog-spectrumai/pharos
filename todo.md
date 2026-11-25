@@ -69,9 +69,9 @@ The gap is kept small: Beacon only ever handles sealed, padded, steady traffic i
     - Invitation redemption goes to the inviter's onion, not Beacon, so newcomers are unaffected; but Beacon can't be the "door" in restricted mode, and `/v1/pairing` only works for authorised clients
     - Adding a client takes seconds–minutes (descriptor republish is rate-limited); removing one isn't instant — tokens rotate weekly anyway
 - [x] 8.B1 Room mailbox ids and tokens from the MLS exporter (current epoch + week number, so they move with every commit and every week; removed members cannot derive them); Beacon keeps only hashes — `mls_mailbox`
-- [ ] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
-- [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
-- [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Beacon are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages
+- [x] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas (500 frames / 8 MiB per mailbox), rate limits — already in Beacon
+- [x] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit (`beacon.rs`, isolated arti client per request; `beaconMailbox.ts` sends only the sealed frame, never the room's name; reads this and last week's mailbox). Off until a room has a Beacon (8.C)
+- [x] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Beacon are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages — done with the mailbox's seen list: frames we send and frames that come by the mesh are noted, so the Beacon copy is skipped before MLS sees it. Note: the outer frame carries a `ts` (send time) in clear; Beacon knows post times anyway
 - [ ] 8.C1 The room's Beacon address stored with the room and shared inside the MLS group state
 - [ ] 8.C2 New rooms use your Beacon if one is set (Settings → Connections, scan its code); none → pure mesh
 - [ ] 8.C3 Phones use both routes: Beacon first, mesh links to online members, work on if Beacon is down; status "Via Beacon" / "Direct"

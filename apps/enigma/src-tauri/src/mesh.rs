@@ -410,7 +410,7 @@ pub fn warm_up(app: &AppHandle) {
     });
 }
 
-async fn client_of(state: &MeshState) -> Result<Arc<TorClient<PreferredRuntime>>> {
+pub(crate) async fn client_of(state: &MeshState) -> Result<Arc<TorClient<PreferredRuntime>>> {
     let guard = state.0.lock().await;
     Ok(guard.as_ref().ok_or_else(|| anyhow!("tor not started"))?.client.clone())
 }
