@@ -59,7 +59,12 @@ Beacon is the default meeting point and mailbox of a room; the mesh keeps workin
 The gap is kept small: Beacon only ever handles sealed, padded, steady traffic it cannot link to anyone.
 - [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
-- [ ] 8.A3 Tor client authorisation on member onions (part of 7.3)
+- [ ] 8.A3 Tor restricted discovery (client authorisation) on member onions (part of 7.3). arti features `restricted-discovery`, `experimental-api`, `keymgr` are on (builds). Pure Rust, same code on Android and desktop.
+  - [ ] a. For each other member's onion, make a discovery keypair in arti's keystore (`generate_service_discovery_key`); send the public half inside the MLS presence message
+  - [ ] b. Each room onion runs in restricted mode with `static_keys` = the members' keys (not `key_dirs`: no file watching, which is shaky on Android); `reconfigure` on every join/leave
+  - [ ] c. Door: a newcomer has no key yet, so redemption goes to a separate short-lived open onion per pending invitation (or Beacon, 8.C); it closes when the invitation is used or expires
+  - [ ] d. Expect: adding someone takes seconds–minutes (descriptor republish is rate-limited); removal is not instant, MLS still keeps them out of the content
+  - [ ] e. Test on a real phone: launch, reconfigure, reconnect after a member is added
 - [x] 8.B1 Room mailbox ids and tokens from the MLS exporter (current epoch + week number, so they move with every commit and every week; removed members cannot derive them); Beacon keeps only hashes — `mls_mailbox`
 - [ ] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
 - [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
