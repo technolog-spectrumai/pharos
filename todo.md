@@ -51,25 +51,25 @@ Gaps found while reviewing Enigma26 (technolog-spectrumai/enigma, `dev_mvp1`) be
 - [ ] 7.1 Message padding in Enigma26 rooms: pad every frame (chat, key packages, commits, files) to fixed buckets before MLS, as `pharos-wire` does (512 / 2048 / 8192 B, then multiples of 32 KiB); refuse non-zero padding
 - [ ] 7.2 Sealed sender: move `device_id`, `user`, `sender_name`, `sender_avatar_url` and `msg_id` out of the plaintext JSON envelope and inside the MLS ciphertext; the outer frame carries only the epoch and the padded blob
 - [ ] 7.3 No captain: a proper mesh (decided 2026-11-22). Every member hosts its own onion and links to every other member; messages go to each link directly (no member relays or sees all traffic); a joiner learns the other members' onions from the MLS group state (inside the ciphertext), not from one host; add Tor client authorisation (restricted discovery, arti feature `restricted-discovery`) so only members can fetch a member's descriptor. Remove the captain code (election, failover, relaying)
-- [ ] 7.4 Timing correlation: cover traffic while a room is open (one padded frame every T seconds per link, real or dummy, real messages take the next slot; T configurable, longer on mobile data/battery); jittered, randomised fetch times instead of the fixed 60 s tick for Sotha's mailbox; see 7.5
+- [ ] 7.4 Timing correlation: cover traffic while a room is open (one padded frame every T seconds per link, real or dummy, real messages take the next slot; T configurable, longer on mobile data/battery); jittered, randomised fetch times instead of the fixed 60 s tick for Beacon's mailbox; see 7.5
 - [ ] 7.5 Vanguards: neither Pharos nor Enigma26 builds arti with the `vanguards` feature (both use `default-features = false`), so onion circuits pick their middle relays at random and the guard of a hosted onion can be found. Enable the feature (arti 0.43 then defaults to vanguards-lite for clients and full vanguards for onion services: 4 L2 relays kept 1–12 days, 8 L3 relays kept 1–48 h), keep arti's state directory across restarts (inside the encrypted profile) so the vanguard sets survive, and test the effect on time to connect
 
-## Stage 8 — Sotha by default, never indispensable (decided 2026-11-25)
-Sotha is the default meeting point and mailbox of a room; the mesh keeps working without it.
-The gap is kept small: Sotha only ever handles sealed, padded, steady traffic it cannot link to anyone.
+## Stage 8 — Beacon by default, never indispensable (decided 2026-11-25)
+Beacon is the default meeting point and mailbox of a room; the mesh keeps working without it.
+The gap is kept small: Beacon only ever handles sealed, padded, steady traffic it cannot link to anyone.
 - [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
 - [ ] 8.A3 Tor client authorisation on member onions (part of 7.3)
-- [ ] 8.B1 Room mailbox ids and tokens from the MLS exporter, rotating weekly; Sotha keeps only hashes
-- [ ] 8.B2 Sotha endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
+- [ ] 8.B1 Room mailbox ids and tokens from the MLS exporter, rotating weekly; Beacon keeps only hashes
+- [ ] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
 - [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
-- [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Sotha are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages
-- [ ] 8.C1 The room's Sotha address stored with the room and shared inside the MLS group state
-- [ ] 8.C2 New rooms use your Sotha if one is set (Settings → Connections, scan its code); none → pure mesh
-- [ ] 8.C3 Phones use both routes: Sotha first, mesh links to online members, work on if Sotha is down; status "Via Sotha" / "Direct"
-- [ ] 8.C4 Invitations name Sotha's onion; a redemption waits there, sealed to the inviter, until the inviter's phone admits it
-- [ ] 8.D1 Constant-rate padded frames to Sotha while a room is open (= 7.4), longer interval on mobile/battery
+- [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Beacon are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages
+- [ ] 8.C1 The room's Beacon address stored with the room and shared inside the MLS group state
+- [ ] 8.C2 New rooms use your Beacon if one is set (Settings → Connections, scan its code); none → pure mesh
+- [ ] 8.C3 Phones use both routes: Beacon first, mesh links to online members, work on if Beacon is down; status "Via Beacon" / "Direct"
+- [ ] 8.C4 Invitations name Beacon's onion; a redemption waits there, sealed to the inviter, until the inviter's phone admits it
+- [ ] 8.D1 Constant-rate padded frames to Beacon while a room is open (= 7.4), longer interval on mobile/battery
 - [ ] 8.D2 Poisson-timed fetches and dummy fetches
-- [ ] 8.D3 Small random release delays on Sotha
-- [ ] 8.E1 SECURITY.md: what Sotha still learns (volume, uptime) and does not (who, which room, what)
-- [ ] 8.E2 Tests: room works with Sotha down; never-overlapping members still exchange; Sotha's DB reveals no room/member link; real-Tor run
+- [ ] 8.D3 Small random release delays on Beacon
+- [ ] 8.E1 SECURITY.md: what Beacon still learns (volume, uptime) and does not (who, which room, what)
+- [ ] 8.E2 Tests: room works with Beacon down; never-overlapping members still exchange; Beacon's DB reveals no room/member link; real-Tor run

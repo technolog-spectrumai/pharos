@@ -1,3 +1,0 @@
-$ sudo -u sotha sotha code -c /etc/sotha/config.yaml
-sotha: no address yet: run `sotha serve` once; Tor makes the address then
-

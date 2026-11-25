@@ -1,5 +1,5 @@
 name: release
-# On a tag v*: Enigma for Linux and Windows, Sotha for Raspberry Pi (arm64 binary and .deb).
+# On a tag v*: Enigma for Linux and Windows, Beacon for Raspberry Pi (arm64 binary and .deb).
 on:
   push:
     tags: ["v*"]
@@ -29,7 +29,7 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
-  sotha-arm64:
+  beacon-arm64:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -37,11 +37,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.94
         with: { targets: aarch64-unknown-linux-gnu }
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p sotha --target aarch64-unknown-linux-gnu
-      - run: cargo install cargo-deb --locked && cargo deb -p sotha --target aarch64-unknown-linux-gnu --no-build
+      - run: cargo build --release -p beacon --target aarch64-unknown-linux-gnu
+      - run: cargo install cargo-deb --locked && cargo deb -p beacon --target aarch64-unknown-linux-gnu --no-build
       - uses: actions/upload-artifact@v4
         with:
-          name: sotha-arm64
+          name: beacon-arm64
           path: |
-            target/aarch64-unknown-linux-gnu/release/sotha
+            target/aarch64-unknown-linux-gnu/release/beacon
             target/aarch64-unknown-linux-gnu/debian/*.deb

@@ -590,6 +590,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "beacon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blake3",
+ "data-encoding",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pharos-id",
+ "pharos-seal",
+ "pharos-tor",
+ "png 0.18.1",
+ "qrcodegen",
+ "rand_core 0.6.4",
+ "rqrr",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "tempfile",
+ "tokio",
+ "tower",
+ "zeroize",
+]
+
+[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6809,34 +6837,6 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "sotha"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "blake3",
- "data-encoding",
- "http-body-util",
- "hyper",
- "hyper-util",
- "pharos-id",
- "pharos-seal",
- "pharos-tor",
- "png 0.18.1",
- "qrcodegen",
- "rand_core 0.6.4",
- "rqrr",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_norway",
- "tempfile",
- "tokio",
- "tower",
- "zeroize",
 ]
 
 [[package]]

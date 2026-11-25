@@ -4,7 +4,7 @@
 //!
 //! An onion can be hosted with a key we supply ([`Tor::host_with_key`]: a
 //! friendship's weekly rendezvous key, D2) or with arti's own persistent key
-//! ([`Tor::host`]: Sotha's stable address).
+//! ([`Tor::host`]: Beacon's stable address).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,7 +38,7 @@ pub enum Vanguards {
     /// Vanguards-lite: a small L2 set; Tor's choice for clients.
     Lite,
     /// Full vanguards (L2 and L3 sets, kept in the state dir): for a
-    /// long-lived onion service such as Sotha.
+    /// long-lived onion service such as Beacon.
     Full,
 }
 

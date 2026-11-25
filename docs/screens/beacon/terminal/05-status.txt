@@ -1,0 +1,7 @@
+$ sudo -u beacon beacon status -c /etc/beacon/config.yaml
+ mailbox: 3
+ message: 3
+  record: 1
+ pairing: 0
+   onion: kbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbigbwyd.onion
+

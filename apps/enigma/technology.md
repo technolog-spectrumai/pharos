@@ -1046,7 +1046,7 @@ Pharos.
 Enigma26 (technolog-spectrumai/enigma, branch `dev_mvp1`) was copied into Pharos as
 `apps/enigma` and renamed **Enigma27** (identifier `com.spectrumaipl.enigma27`, the
 letter E as its icon, `scripts/letter_icon.py`). It replaced Pharos's previous
-client, which had Friends (Pharos 1:1 over rendezvous onions, with Sotha) and
+client, which had Friends (Pharos 1:1 over rendezvous onions, with Beacon) and
 Vesper's groups. Pharos owns the code now; nothing is vendored.
 
 **Removed:** iroh, iroh-gossip and Ferrozine — there is no direct P2P at all; the
@@ -1966,7 +1966,7 @@ GitHub Actions, in the repo root's `.github/workflows/`:
 | Workflow | When | What |
 |---|---|---|
 | `ci.yml` | every push | `./tests.sh js` and `./tests.sh rust` |
-| `release.yml` | a `v*` tag | Enigma27 for Linux and Windows (`tauri build`), Sotha for arm64 (binary and `.deb`) |
+| `release.yml` | a `v*` tag | Enigma27 for Linux and Windows (`tauri build`), Beacon for arm64 (binary and `.deb`) |
 | `real-tor.yml` | by hand | `./test_tor2.sh`: two instances over the real Tor network |
 
 Android is not built in CI.
@@ -2793,7 +2793,7 @@ Active scope:
 
 Out of scope here:
 
-- Sotha and the `pharos-*` crates (the friend protocol): root
+- Beacon and the `pharos-*` crates (the friend protocol): root
   [SECURITY.md](../../SECURITY.md), Part 2
 - Morion and its file sealing (another repository)
 
@@ -2916,8 +2916,8 @@ Open work, in rough priority order (security hardening items are in
   cover traffic (Stage 7.1–7.4).
 - **An authenticated reset**, or none (§9 item 4).
 - **Key verification** and an MLS rekey cadence.
-- **A room mailbox** on Sotha, so a message can wait for a member who is offline
-  after the sender has closed the room (Enigma27 does not talk to Sotha yet).
+- **A room mailbox** on Beacon, so a message can wait for a member who is offline
+  after the sender has closed the room (Enigma27 does not talk to Beacon yet).
 - **Accepted limitations (documented, deliberate):**
   - New joiners need the inviter online, with the room open ([§18.7](#187-limitations)).
   - Group scale: a full mesh, for small rooms.

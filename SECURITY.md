@@ -2,10 +2,10 @@
 
 Pharos is two things with two models. **Enigma27**, the client, runs small
 group chats over Tor: every member hosts an onion service per room and links
-to every other member, and every message is sealed with MLS. **Sotha**, the
+to every other member, and every message is sealed with MLS. **Beacon**, the
 optional server, serves the older friend protocol (mailbox, directory,
 pairing drop-off); Enigma27 does not use it yet. Part 1 is Enigma27, part 2 is
-Sotha. The wire formats are in [PROTOCOL.md](PROTOCOL.md).
+Beacon. The wire formats are in [PROTOCOL.md](PROTOCOL.md).
 
 # Part 1 — Enigma27
 
@@ -33,15 +33,15 @@ cannot be linked by their addresses.
 build circuits on demand: an attacker connects to it again and again, running
 relays of their own, until one of theirs is picked as the hop next to the
 service's guard; from there they learn the guard and can watch or pressure it
-to find where the service is (guard discovery). Sotha's onion lives for years,
+to find where the service is (guard discovery). Beacon's onion lives for years,
 and in Enigma27 every member hosts a stable onion for every room, so both are
 exposed to this. arti is built with the `vanguards` feature and both run
-**full vanguards** (Sotha: `pharos_tor::Vanguards::Full`; Enigma27: set
+**full vanguards** (Beacon: `pharos_tor::Vanguards::Full`; Enigma27: set
 explicitly in `mesh.rs`, as arti 0.43 does not yet choose full mode for onion
 services itself): the second and third hops of onion circuits come from small
 sets (4 L2 relays kept 1–12 days, 8 L3 relays kept 1–48 hours), so such a relay
 sees a vanguard, not the guard. The sets and guards are kept in arti's state
-directory and survive restarts (Sotha: `tor-state` in its data folder;
+directory and survive restarts (Beacon: `tor-state` in its data folder;
 Enigma27: sealed into the profile's vault while the app is stopped). It narrows
 guard discovery; it does not hide you from your guard, nor from a global
 observer.
@@ -125,43 +125,43 @@ from the mesh is ignored; a download without the right secret is refused, and
 a file whose size or BLAKE3 does not match is not kept; an invitation with a
 bad signature, proof, state, recipient or expiry is refused with a code.
 
-# Part 2 — Sotha and the friend protocol
+# Part 2 — Beacon and the friend protocol
 
-Sotha, an optional server a friend runs (often on a Raspberry Pi), keeps
+Beacon, an optional server a friend runs (often on a Raspberry Pi), keeps
 messages for friends who are offline and helps friends find each other again.
 It serves the friend protocol (PROTOCOL.md, Part B), which the earlier friend
 client spoke; Enigma27 does not talk to it yet.
 
 **A friend** (in the friend protocol) learns what you send them, your name and
-device fingerprint, the Sotha address on your card, when you are online (their
+device fingerprint, the Beacon address on your card, when you are online (their
 dials to your rendezvous onion succeed or not), and your clock roughly. Each
 friendship has its own onion, which changes weekly (`pharos-rendezvous`), its
 own MLS group, mailbox and directory record, so a friend cannot see your other
 friends.
 
-**Your Sotha's operator** (you, or a friend who runs it for you) sees, per
+**Your Beacon's operator** (you, or a friend who runs it for you) sees, per
 mailbox id: how many messages arrive, their padded size, when they arrive and
 when they are fetched — that is, roughly when you are online, and how many
 friends write to you (one mailbox per friendship). They do not see contents,
 names, fingerprints or which mailbox belongs to which friend: ids and tokens
 are HKDF outputs of the friendship secret. They can drop or delay messages
-(the sender sees "left on Sotha", never "delivered"), and they can refuse
+(the sender sees "left on Beacon", never "delivered"), and they can refuse
 service. They cannot forge messages (MLS) or pairings (signed cards).
 
-**Someone who takes Sotha's disk** gets the database: row counts and sizes.
+**Someone who takes Beacon's disk** gets the database: row counts and sizes.
 Every value is sealed with `master.key`; ids and tokens are keyed hashes. With
 the key too (on the same unencrypted SD card) they get what the operator
-sees. Hence `sotha check` and [sotha/docs/disk-encryption.md](sotha/docs/disk-encryption.md).
+sees. Hence `beacon check` and [beacon/docs/disk-encryption.md](beacon/docs/disk-encryption.md).
 
-### Sotha's page and code
+### Beacon's page and code
 
-Anyone who has a Sotha's onion address can open its page in Tor Browser and
+Anyone who has a Beacon's onion address can open its page in Tor Browser and
 use it: the address is its only access control, as it is for the API (friends
 learn it from your contact card anyway). The page shows nothing the address
 does not already give — the address itself, the name its operator chose, and
 the same address as a QR code — and it is made once, at start, from those two
 things, with no input from visitors. It runs no script and loads nothing from
-elsewhere. A code passed on as a picture can be swapped for another Sotha's
+elsewhere. A code passed on as a picture can be swapped for another Beacon's
 code; whoever hands it to you should be someone you trust, and the address
 inside it is checked (a typo fails its checksum), not authenticated.
 
@@ -172,30 +172,30 @@ one-time token and a fresh MLS key package. The reply is signed, bound to the
 card's fingerprint, and carries the MLS welcome, which opens only for that key
 package. **Compare fingerprints** (six groups of four letters) in person or on
 a call: a card passed through an untrusted channel could be swapped, and
-signatures cannot tell you whose key it is. A reply left on Sotha under the
+signatures cannot tell you whose key it is. A reply left on Beacon under the
 card's token is taken once.
 
 ### Limits and known gaps (friend protocol)
 
 - **Fetch timing.** The friend client fetched its mailboxes and retried its
-  outbox every 60 seconds while running, so Sotha learns when you are online. A random
+  outbox every 60 seconds while running, so Beacon learns when you are online. A random
   schedule would blur it; it is not implemented.
-- **Message count per mailbox** is visible to Sotha (padding hides sizes, not counts). No cover traffic.
+- **Message count per mailbox** is visible to Beacon (padding hides sizes, not counts). No cover traffic.
 - **Out-of-order delivery.** MLS tolerates a small window of reordering; a
-  message that arrives both directly and through Sotha opens once and the
+  message that arrives both directly and through Beacon opens once and the
   copy is dropped.
 - **No forward secrecy for the rendezvous derivation**: whoever learns a
   friendship secret can compute that friendship's past and future onions and
   mailbox ids (not past message keys, which MLS ratchets).
 - **One device per identity.** No multi-device sync.
 
-### Hostile input (Sotha and the friend protocol)
+### Hostile input (Beacon and the friend protocol)
 
 Checked by tests: frames over 64 KiB are refused before allocation; malformed
 envelopes, other wire versions and over-long texts are refused on decode;
 non-zero padding is refused; a replayed or reflected MLS message does not
 open; a frame that does not open ends the connection; cards that are expired,
-tampered, for someone else or one's own are refused; Sotha refuses wrong
+tampered, for someone else or one's own are refused; Beacon refuses wrong
 tokens, full mailboxes, too many mailboxes, oversized bodies, bad ids,
 rate-limited ids; a full disk fails the request and leaves the database
 intact.

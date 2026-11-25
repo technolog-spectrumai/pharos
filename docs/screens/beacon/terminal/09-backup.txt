@@ -1,0 +1,3 @@
+$ sudo -u beacon beacon backup -c /etc/beacon/config.yaml /var/lib/beacon/backup-2026-11-05.sqlite
+backed up to /var/lib/beacon/backup-2026-11-05.sqlite; back up the master key separately
+

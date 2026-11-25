@@ -7,11 +7,11 @@ Two protocols live in this repository:
   (links, framing), `invite_ticket.rs` and `invite_redeem.rs` (invitations),
   `files.rs` (downloads), and `packages/rakotis/src/useChatChannel.ts` (the MLS
   messages inside the frames).
-- **Part B — the friend protocol, version 1, which Sotha serves**: what the
-  earlier Pharos friend client said to a friend and to Sotha. Enigma27 does not
-  speak it; Sotha keeps it for a later room mailbox. The reference is
+- **Part B — the friend protocol, version 1, which Beacon serves**: what the
+  earlier Pharos friend client said to a friend and to Beacon. Enigma27 does not
+  speak it; Beacon keeps it for a later room mailbox. The reference is
   `crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id` and
-  `sotha/src/api.rs`. Test vectors are in `pharos-rendezvous` (`test_vectors`).
+  `beacon/src/api.rs`. Test vectors are in `pharos-rendezvous` (`test_vectors`).
   Its sections keep their numbers (§1–§5), as other documents link to them.
 
 # Part A — Enigma27's mesh
@@ -123,9 +123,9 @@ acceptance), answers `{ ok, code, size, hash: BLAKE3 of the file }` and streams
 the raw bytes; the receiver keeps the file only if size and hash match. The
 bytes are protected by Tor's end-to-end onion encryption, not by MLS.
 
-# Part B — the friend protocol (Sotha's)
+# Part B — the friend protocol (Beacon's)
 
-What two friend clients said to each other and to Sotha.
+What two friend clients said to each other and to Beacon.
 
 ## 1. Identity
 
@@ -141,7 +141,7 @@ the postcard encoding of):
 ```
 ContactCard { body: CardBody, sig: [u8; 64] }
 CardBody { v: u8 = 1, name: String (1–64 chars), device: [u8; 32],
-           key_package: Vec<u8> (MLS KeyPackage message), sotha: Option<String> (onion),
+           key_package: Vec<u8> (MLS KeyPackage message), beacon: Option<String> (onion),
            pairing_token: [u8; 16], issued_secs: u64 }
 ```
 
@@ -158,7 +158,7 @@ ReplyBody { card: ContactCard (the scanner's; key_package empty, token zero),
 
 `sig` is by `body.card.body.device` over postcard(`body`); `to_fingerprint`
 must be the receiver's. The scanner creates an MLS group, adds the card's key
-package, and sends the welcome. If the card names a Sotha, the reply is
+package, and sends the welcome. If the card names a Beacon, the reply is
 `PUT /v1/pairing/{hex(pairing_token)}` there; otherwise it is shown.
 
 **Friendship secret**: right after the group is formed, both take the MLS
@@ -210,14 +210,14 @@ sends frames. For each frame that opens to a Text, the host answers with one
 frame: a sealed `Ack([id])`. A frame that does not open ends the session. An
 idle session closes after 120 s.
 
-## 5. Sotha (M3, D5)
+## 5. Beacon (M3, D5)
 
 HTTP/1.1 over its onion. Ids and tokens are lower-case hex; a token goes in
 `Authorization: Bearer`.
 
 | Method and path | Auth | Body → answer |
 |---|---|---|
-| `GET /v1/health` | – | `{"ok":true,"service":"sotha","version":…}` |
+| `GET /v1/health` | – | `{"ok":true,"service":"beacon","version":…}` |
 | `PUT /v1/mailbox/{id}` | token | sealed message → 201 `{"seq":n}`; the first PUT sets the token |
 | `GET /v1/mailbox/{id}?after=n` | token | → `{"messages":[{"seq":n,"blob":base64}]}`, ≤ 100 |
 | `POST /v1/mailbox/{id}/ack?upto=n` | token | → `{"removed":k}` |
@@ -232,19 +232,19 @@ kept 14 days; records ≤ 2 KiB, 15 days; pairing replies ≤ 48 KiB, 7 days; 60
 requests per minute per id.
 
 A sender leaves messages for friend `F` in the mailbox `mailbox id(F)` on F's
-Sotha; F fetches it, opens each blob as a friendship message, acknowledges
-to Sotha up to the last seq, and owes the sender an `Ack`.
+Beacon; F fetches it, opens each blob as a friendship message, acknowledges
+to Beacon up to the last seq, and owes the sender an `Ack`.
 
-**Its page and its code.** On its onion, outside `/v1/`, Sotha serves a
+**Its page and its code.** On its onion, outside `/v1/`, Beacon serves a
 static page for people (no JavaScript, no SVG, `Content-Security-Policy:
 default-src 'none'; img-src 'self'; style-src 'unsafe-inline'`): `/` in
-English, `/pl` in Polish, `/sotha-qr.png` (the code as a QR image) and
-`/sotha.txt` (the code as text). `sotha code` prints the same code and QR
-in a terminal. The **Sotha code** is `pharos-sotha:` + base32 (no padding,
+English, `/pl` in Polish, `/beacon-qr.png` (the code as a QR image) and
+`/beacon.txt` (the code as text). `beacon code` prints the same code and QR
+in a terminal. The **Beacon code** is `pharos-beacon:` + base32 (no padding,
 prefix and payload in any case) of the postcard encoding of
 
 ```
-SothaCode { v: u8 = 1, onion: [u8; 32] (the onion's ed25519 identity key), name: String (1–64 chars) }
+BeaconCode { v: u8 = 1, onion: [u8; 32] (the onion's ed25519 identity key), name: String (1–64 chars) }
 ```
 
 The address is derived from `onion` (§3), so a code cannot carry a mistyped
@@ -252,6 +252,6 @@ one. Enigma also takes a bare v3 address; it checks its checksum and version.
 
 **Directory record**: XChaCha20-Poly1305 under the directory key, associated
 data `pharos/directory/v1`, nonce (24 bytes) ‖ ciphertext, of the JSON
-`{"sotha": onion | null, "at": unix_seconds}`. The owner files it under
+`{"beacon": onion | null, "at": unix_seconds}`. The owner files it under
 `directory id(owner, week)` and `week + 1` on its current and previous
-Sotha addresses. A friend reads this week's, then last week's.
+Beacon addresses. A friend reads this week's, then last week's.

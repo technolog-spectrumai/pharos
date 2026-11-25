@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# Build Pharos: Enigma (with Dromon, as apps/enigma/dromon.yaml says) or Sotha.
+# Build Pharos: Enigma (with Dromon, as apps/enigma/dromon.yaml says) or Beacon.
 #
 #   ./build.sh enigma              Enigma27 for this machine: .deb and .rpm (Linux)
-#   ./build.sh sotha               Sotha, the server, for this machine: binary + .deb
-#   ./build.sh sotha pi            Sotha for a Raspberry Pi (aarch64, cross-built)
-#   ./build.sh all                 Enigma, then Sotha for this machine
+#   ./build.sh beacon               Beacon, the server, for this machine: binary + .deb
+#   ./build.sh beacon pi            Beacon for a Raspberry Pi (aarch64, cross-built)
+#   ./build.sh all                 Enigma, then Beacon for this machine
 #
 #   ./build.sh enigma --dry-run    print the commands it resolves to, run none
 #   ./build.sh enigma --validate   check the file against the checkout, build nothing
 #   ./build.sh --list              the apps and their variants
 #   ./build.sh --check             is this machine ready? (./install.sh --check)
 #
-# Packages land in dist/enigma/ and dist/sotha/<arch>/, each with a SHA256SUMS
+# Packages land in dist/enigma/ and dist/beacon/<arch>/, each with a SHA256SUMS
 # and a build.json.
 #
 # A machine that lacks something (Node 22, Rust, system libraries, npm
@@ -59,16 +59,16 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Sotha is a server, not a Dromon app: its own script.
-if [ "${1:-}" = "sotha" ]; then
+# Beacon is a server, not a Dromon app: its own script.
+if [ "${1:-}" = "beacon" ]; then
   shift
-  exec "$REPO_ROOT/sotha/build.sh" "$@"
+  exec "$REPO_ROOT/beacon/build.sh" "$@"
 fi
-# `all`: Enigma (every variant, through Dromon), then Sotha for this machine.
+# `all`: Enigma (every variant, through Dromon), then Beacon for this machine.
 if [ "${1:-}" = "all" ]; then
   shift
   "$REPO_ROOT/build.sh" enigma all "$@"
-  exec "$REPO_ROOT/sotha/build.sh" host "$@"
+  exec "$REPO_ROOT/beacon/build.sh" host "$@"
 fi
 # Every run writes its own log: build-logs/build-<date>_<time>_<what>.log, all
 # that is shown here, setup included. The path is said at the start and the end.

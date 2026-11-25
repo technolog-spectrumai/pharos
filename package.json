@@ -2,7 +2,7 @@
   "name": "pharos",
   "private": true,
   "version": "0.2.0",
-  "description": "Pharos: Enigma (private group chat over Tor, sealed with MLS), Sotha (the optional server), and the packages they share.",
+  "description": "Pharos: Enigma (private group chat over Tor, sealed with MLS), Beacon (the optional server), and the packages they share.",
   "workspaces": [
     "packages/*",
     "apps/enigma",
