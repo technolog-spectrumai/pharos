@@ -91,8 +91,12 @@ async function status(state: string, room = ROOM, peerId?: string, linked: strin
   await flush();
 }
 
+/** Sealed sender: who sent it rides inside the encrypted JSON, not outside. */
 const fromPeer = (device: string, inner: unknown): Frame => ({
-  type: "mls_app", ciphertext: seal(inner), device_id: device, sender_name: device,
+  type: "mls_app",
+  ciphertext: seal(typeof inner === "string"
+    ? { type: "text", text: inner, from: { id: device, name: device } }
+    : { ...(inner as Frame), from: { id: device, name: device } }),
 });
 const presence = (device: string, onion = "", reply = true) =>
   deliver(fromPeer(device, { type: "presence", device_id: device, name: device, avatar: "", onion, reply }));
@@ -477,7 +481,7 @@ describe("leaving the room", () => {
   it("tells the group over the encrypted seam, then resets the view", async () => {
     const ch = await readyRoom("alice", ["alice", "bob"]);
     await ch.leaveParticipant();
-    expect(sentInner("leave")).toEqual([{ type: "leave", device_id: "alice" }]);
+    expect(sentInner("leave")).toEqual([{ type: "leave", device_id: "alice", from: { id: "alice", name: "You" } }]);
     expect(mockTransport.leaveRoom).toHaveBeenCalledWith(ROOM);
     expect(ch.currentRoom.value).toBeNull();
     expect(ch.messages.value).toEqual([]);
@@ -537,7 +541,7 @@ describe("deleting a room", () => {
     mockTransport.send.mockClear();
 
     await ch.deleteRoom(entry(ch)!);
-    expect(sentInner("room_closed")).toEqual([{ type: "room_closed", device_id: "alice" }]);
+    expect(sentInner("room_closed")).toEqual([{ type: "room_closed", device_id: "alice", from: { id: "alice", name: "You" } }]);
     expect(crypto.clearState).toHaveBeenLastCalledWith(ROOM, "alice");
     expect(await loadLog(ROOM)).toEqual([]);
     expect(ch.p2pRooms.value).toEqual([]);
@@ -549,7 +553,7 @@ describe("deleting a room", () => {
   it("sends an ordinary leave for a room we only joined", async () => {
     const ch = await readyRoom("alice", ["alice", "bob"]);
     await ch.deleteRoom({ ...entry(ch)!, host: false });
-    expect(sentInner("leave")).toEqual([{ type: "leave", device_id: "alice" }]);
+    expect(sentInner("leave")).toEqual([{ type: "leave", device_id: "alice", from: { id: "alice", name: "You" } }]);
     expect(sentInner("room_closed")).toEqual([]);
   });
 

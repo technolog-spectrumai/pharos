@@ -57,13 +57,13 @@ Gaps found while reviewing Enigma26 (technolog-spectrumai/enigma, `dev_mvp1`) be
 ## Stage 8 — Sotha by default, never indispensable (decided 2026-11-25)
 Sotha is the default meeting point and mailbox of a room; the mesh keeps working without it.
 The gap is kept small: Sotha only ever handles sealed, padded, steady traffic it cannot link to anyone.
-- [ ] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
+- [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
 - [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
 - [ ] 8.A3 Tor client authorisation on member onions (part of 7.3)
 - [ ] 8.B1 Room mailbox ids and tokens from the MLS exporter, rotating weekly; Sotha keeps only hashes
 - [ ] 8.B2 Sotha endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas, rate limits
 - [ ] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit
-- [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1)
+- [ ] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Sotha are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages
 - [ ] 8.C1 The room's Sotha address stored with the room and shared inside the MLS group state
 - [ ] 8.C2 New rooms use your Sotha if one is set (Settings → Connections, scan its code); none → pure mesh
 - [ ] 8.C3 Phones use both routes: Sotha first, mesh links to online members, work on if Sotha is down; status "Via Sotha" / "Direct"

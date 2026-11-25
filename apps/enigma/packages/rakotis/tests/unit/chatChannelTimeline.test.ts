@@ -89,14 +89,20 @@ async function status(state: string, room = ROOM, peerId?: string, linked: strin
   await flush();
 }
 
-/** A peer's encrypted frame, as the transport would hand it over. */
-const fromPeer = (device: string, inner: unknown, extra: Frame = {}): Frame => ({
-  type: "mls_app",
-  ciphertext: seal(inner),
-  device_id: device,
-  sender_name: device === "bob" ? "Bob" : device,
-  ...extra,
-});
+/** A peer's encrypted frame, as the transport would hand it over. Sealed
+ *  sender: the outside is only type + ciphertext; who sent it (and the text's
+ *  msg_id) travels inside the encrypted JSON. A string `inner` becomes a text
+ *  message; `raw: true` seals it as-is (not JSON). */
+type PeerOpts = { name?: string; msg_id?: string; raw?: boolean };
+const fromPeer = (device: string, inner: unknown, opts: PeerOpts = {}): Frame => {
+  const from = { id: device, name: opts.name ?? (device === "bob" ? "Bob" : device) };
+  const sealed = opts.raw
+    ? inner
+    : typeof inner === "string"
+      ? { type: "text", text: inner, ...(opts.msg_id ? { msg_id: opts.msg_id } : {}), from }
+      : { ...(inner as Frame), from };
+  return { type: "mls_app", ciphertext: seal(sealed) };
+};
 
 const sent = (type?: string) =>
   mockTransport.send.mock.calls
@@ -187,25 +193,42 @@ describe("an encrypted message from a peer", () => {
     // "Self" spans the whole user: a linked leaf of our identity renders
     // right-aligned like anything we typed here.
     const ch = await readyRoom();
-    await deliver(fromPeer("alice#dev-abcdefgh", "from my laptop", { sender_name: "Alice (laptop)" }));
+    await deliver(fromPeer("alice#dev-abcdefgh", "from my laptop", { name: "Alice (laptop)" }));
     expect(bubbles(ch)[0]).toMatchObject({ content: "from my laptop", self: true });
     expect(ch.unread.value).toBe(0);
   });
 
   it("ignores our own frame echoed back by the topic", async () => {
     const ch = await readyRoom();
+    // Sealed sender: it is only recognisable as ours once opened.
     await deliver(fromPeer("alice", "echo"));
+    expect(crypto.processMessage).toHaveBeenCalledTimes(1);
     expect(bubbles(ch)).toHaveLength(0);
-    expect(crypto.processMessage).not.toHaveBeenCalled();
+    expect(ch.unread.value).toBe(0);
   });
 
-  it("takes the avatar from the roster when the envelope carries none", async () => {
+  it("takes the avatar from the roster only, never from the frame", async () => {
     const ch = await readyRoom();
+    await deliver(fromPeer("bob", "before presence"));
+    expect(bubbles(ch)[0].avatar_url).toBeNull();
     await deliver(fromPeer("bob", { type: "presence", device_id: "bob", name: "Bob", avatar: "data:bob", reply: true }));
-    await deliver(fromPeer("bob", "hi", { sender_avatar_url: null }));
-    expect(bubbles(ch)[0].avatar_url).toBe("data:bob");
-    await deliver(fromPeer("bob", "hi again", { sender_avatar_url: "data:fresh" }));
-    expect(bubbles(ch)[1].avatar_url).toBe("data:fresh");
+    await deliver(fromPeer("bob", "hi"));
+    expect(bubbles(ch)[1].avatar_url).toBe("data:bob");
+    // An avatar smuggled onto the outside of the frame is ignored.
+    await deliver({ ...fromPeer("bob", "hi again"), sender_avatar_url: "data:forged" });
+    expect(bubbles(ch)[2].avatar_url).toBe("data:bob");
+  });
+
+  it("renders a non-JSON plaintext as text from Unknown", async () => {
+    const ch = await readyRoom();
+    await deliver(fromPeer("bob", "just bytes", { raw: true }));
+    expect(bubbles(ch)[0]).toMatchObject({ user: "Unknown", content: "just bytes", self: false });
+  });
+
+  it("reads the sender from inside the ciphertext, never the outside", async () => {
+    const ch = await readyRoom();
+    await deliver({ ...fromPeer("bob", "hi", { msg_id: "m-9" }), device_id: "mallory", sender_name: "Mallory", msg_id: "outer" });
+    expect(bubbles(ch)[0]).toMatchObject({ id: "m-9", user: "Bob" });
   });
 
   it("renders image and voice payloads as media cards keyed by their inner id", async () => {
@@ -234,7 +257,7 @@ describe("an encrypted message from a peer", () => {
       const seen: Array<[string, Record<string, unknown>, string]> = [];
       const off = ch.onSync((t, payload, sender) => seen.push([t, payload, sender]));
       await deliver(fromPeer("bob", { type, id: "x-1" }));
-      expect(seen).toEqual([[type, { type, id: "x-1" }, "Bob"]]);
+      expect(seen).toEqual([[type, { type, id: "x-1", from: { id: "bob", name: "Bob" } }, "Bob"]]);
       expect(bubbles(ch)).toHaveLength(0);
 
       // Unsubscribing really unsubscribes.
@@ -322,7 +345,8 @@ describe("a message that arrives before the session is ready", () => {
     await deliver(fromPeer("bob", "too early", { msg_id: "early-1" }));
     expect(ch.messages.value.at(-1)).toMatchObject({
       type: "mls_app",
-      user: "Bob",
+      user: "…",
+      avatar_url: null,
       content: "🔒 [encrypted — session not ready]",
       encrypted: true,
       self: false,
@@ -370,29 +394,32 @@ describe("frames in the clear", () => {
 // ── sending ─────────────────────────────────────────────────────────────────
 
 describe("sending text", () => {
-  it("encrypts the trimmed text, puts its stable id on the envelope, and shows it as ours", async () => {
+  it("encrypts the trimmed text with its sender and stable id inside, and shows it as ours", async () => {
     const ch = await readyRoom();
     await ch.sendMessage("  hi there  ");
-    expect(crypto.encrypt).toHaveBeenCalledWith(ROOM, "alice", "hi there");
     const [frame] = sent("mls_app");
-    expect(frame).toMatchObject({
-      device_id: "alice", user: "Alice", sender_name: "Alice", sender_avatar_url: null,
+    const inner = JSON.parse(open(frame));
+    expect(inner).toEqual({
+      type: "text", text: "hi there", msg_id: expect.any(String), from: { id: "alice", name: "Alice" },
     });
-    // Text stays raw inside the ciphertext, so old builds render it as-is.
-    expect(open(frame)).toBe("hi there");
+    expect(crypto.encrypt).toHaveBeenCalledWith(ROOM, "alice", open(frame));
     expect(bubbles(ch).at(-1)).toMatchObject({
-      id: frame.msg_id, content: "hi there", self: true, encrypted: true,
+      id: inner.msg_id, content: "hi there", self: true, encrypted: true,
     });
     expect(ch.unread.value).toBe(0);
   });
 
-  it("carries our avatar on the envelope once one is set", async () => {
+  it("seals the sender: the frame's outside is exactly type and ciphertext", async () => {
     const ch = await readyRoom();
     ch.myAvatar.value = "data:me";
     await flush();
     mockTransport.send.mockClear();
     await ch.sendMessage("with face");
-    expect(sent("mls_app")[0].sender_avatar_url).toBe("data:me");
+    const [frame] = sent("mls_app");
+    expect(Object.keys(frame).sort()).toEqual(["ciphertext", "type"]);
+    expect(JSON.stringify(frame)).not.toContain("data:me");
+    // Our own avatar still shows on our bubble.
+    expect(bubbles(ch).at(-1)).toMatchObject({ content: "with face", avatar_url: "data:me" });
   });
 
   it("sends nothing for blank text", async () => {
@@ -409,7 +436,7 @@ describe("sending text", () => {
     expect(notices(ch).at(-1)).toBe("Disconnected.");
     await ch.sendMessage("for later");
     expect(sent("mls_app")).toHaveLength(1);
-    expect(open(sent("mls_app")[0])).toBe("for later");
+    expect(JSON.parse(open(sent("mls_app")[0]))).toMatchObject({ type: "text", text: "for later" });
     expect(bubbles(ch).at(-1)).toMatchObject({ content: "for later", self: true, encrypted: true });
   });
 
@@ -449,6 +476,7 @@ describe("sending media", () => {
     expect(inner).toEqual({
       type: "image_message",
       msg_id: expect.any(String),
+      from: { id: "alice", name: "Alice" },
       image_data: "data:image/png;base64,cG5nLWJ5dGVz",
     });
     expect(bubbles(ch).at(-1)).toMatchObject({
@@ -507,8 +535,8 @@ describe("the data-sync seam", () => {
     const ch = await readyRoom();
     await ch.sendSync("file_offer", { id: "f1", size: 10 });
     const [frame] = sent("mls_app");
-    expect(JSON.parse(open(frame))).toEqual({ type: "file_offer", id: "f1", size: 10 });
-    expect(frame).toMatchObject({ device_id: "alice", sender_name: "Alice" });
+    expect(JSON.parse(open(frame))).toEqual({ type: "file_offer", from: { id: "alice", name: "Alice" }, id: "f1", size: 10 });
+    expect(Object.keys(frame).sort()).toEqual(["ciphertext", "type"]);
     expect(bubbles(ch)).toHaveLength(0);
   });
 
