@@ -267,6 +267,16 @@ fi
 unset ANDROID_APP_CARGO_TREE _hook _crate_dir _crate
 
 # ── Build ─────────────────────────────────────────────────────────────────────
+# A debug APK without Rust debug symbols: about 58 MB instead of 180 MB, and the
+# app behaves the same. ENIGMA_KEEP_DEBUG_SYMBOLS=1 keeps them (for a debugger).
+if [[ "${BUILD_TYPE}" == "debug" && "${ENIGMA_KEEP_DEBUG_SYMBOLS:-0}" != "1" ]]; then
+  export CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_STRIP=symbols
+fi
+# Maven Central rate-limits some machines (HTTP 429). Gradle fetches through
+# Google's mirror of it instead (tools/android/gradle/maven-mirror.gradle).
+GRADLE_INIT_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+mkdir -p "${GRADLE_INIT_DIR}"
+cp "${SCRIPT_DIR}/gradle/maven-mirror.gradle" "${GRADLE_INIT_DIR}/maven-mirror.gradle"
 
 if [[ "${BUILD_TYPE}" == "release" ]]; then
   echo "==> Building release APK + AAB"

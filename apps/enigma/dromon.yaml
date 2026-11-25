@@ -47,7 +47,7 @@ variants:
       bundles: [deb, rpm]
 
     android:
-      enabled: false
+      enabled: true
       profile: debug            # debug | release (release needs a signing key — technology.md §19)
       abis: [aarch64]           # aarch64 (phones) | x86_64 (emulator) | armv7 | i686, or [all]
       # debug-key (debug) | release-key (release, the default there) | none: a
