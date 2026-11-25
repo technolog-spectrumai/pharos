@@ -52,6 +52,7 @@ protasius = { path = "../../../crates/protasius" }
 gervasius = { path = "../../../crates/gervasius" }
 zeroize = "1"
 hex = "0.4"
+pharos-id = { path = "../../../crates/pharos-id" }
 cpal = "0.15"
 hound = "3"
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }

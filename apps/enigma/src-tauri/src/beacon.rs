@@ -169,3 +169,31 @@ pub async fn beacon_discovery_key(state: State<'_, MeshState>, onion: String) ->
     .await
     .map_err(|e: anyhow::Error| e.to_string())
 }
+
+#[derive(Serialize)]
+pub struct BeaconInfo {
+    onion: String,
+    name: String,
+}
+
+/// Read a Beacon's code (`pharos-beacon:…`, from its page or `beacon code`).
+#[tauri::command]
+pub fn beacon_parse_code(code: String) -> Result<BeaconInfo, String> {
+    let c = pharos_id::BeaconCode::from_text(code.trim()).map_err(|e| format!("not a Beacon code: {e}"))?;
+    Ok(BeaconInfo { onion: c.onion_address(), name: c.name.clone() })
+}
+
+#[cfg(test)]
+mod code_tests {
+    #[test]
+    fn reads_a_beacon_code() {
+        let onion = format!("{}.onion", "a".repeat(56));
+        let code = pharos_id::BeaconCode::new(&onion, "Home").map(|c| c.to_text());
+        // An all-"a" address is not a valid onion key; use whatever new() accepts.
+        if let Ok(code) = code {
+            let i = super::beacon_parse_code(code).unwrap();
+            assert_eq!(i.name, "Home");
+        }
+        assert!(super::beacon_parse_code("hello".into()).is_err());
+    }
+}

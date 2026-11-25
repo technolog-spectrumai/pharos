@@ -15,6 +15,7 @@ import { useFileShare } from "../components/chat/useFileShare";
 import { useInviteAdmit } from "../components/chat/useInviteAdmit";
 import { useP2pRooms } from "../components/chat/useP2pRooms";
 import { beaconMailbox } from "../beaconMailbox";
+import { loadBeacon, myBeacon } from "./beacon";
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -33,7 +34,7 @@ function createChatStore() {
     beaconFor: (room) => p2p.p2pRooms.value.find((r) => r.room === room)?.beacon,
     identity: () => p2p.mlsIdentity.value,
   });
-  p2p = useChatChannel({ mailbox });
+  p2p = useChatChannel({ mailbox, beaconForNewRoom: () => myBeacon.value?.onion });
   // P2P file transfer rides the p2p channel's MLS group (onSync/sendSync seam).
   // Created here (once, for the app's lifetime) so incoming offers are caught
   // even while the Files modal is closed.
@@ -53,6 +54,7 @@ function createChatStore() {
   async function init() {
     if (initialized) return;
     initialized = true;
+    await loadBeacon();
     await p2p.loadP2pRooms();
     const last = p2p.p2pRooms.value[0];
     if (last) await p2p.openP2pRoom(last);

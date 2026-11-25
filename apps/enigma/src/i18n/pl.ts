@@ -415,4 +415,18 @@ export default {
     errNotAnInvitation: "To nie jest zaproszenie. Bilety i kody pokoju nikogo już nie wpuszczają — poproś o zaproszenie.",
     errGeneric: "Nie udało się użyć tego zaproszenia.",
   },
+  beacon: {
+    title: "Twój Beacon (opcjonalnie)",
+    intro: "Beacon to mały pomocnik, którego uruchamiasz w domu (wystarczy Raspberry Pi), dostępny tylko przez Tor. Przechowuje wiadomości pokoju dla osób offline. Nie może ich przeczytać. Bez niego pokoje działają bezpośrednio między telefonami.",
+    newRoomsOnly: "Pokoje, które utworzysz od teraz, będą go używać. Pokój zachowuje Beacon, z którym powstał, a jego członkowie poznają go wewnątrz szyfrowania.",
+    showKey: "Klucz tego telefonu",
+    remove: "Przestań używać",
+    keyHint: "Potrzebny tylko, gdy Beacon jest ustawiony na \"tylko moje telefony\": na Beaconie uruchom  beacon allow NAZWA  a po nim ten klucz.",
+    scan: "Zeskanuj jego kod",
+    paste: "pharos-beacon:…",
+    use: "Użyj",
+    via: "Przez Beacon",
+    direct: "Bezpośrednio",
+    down: "Beacon niedostępny",
+  },
 };

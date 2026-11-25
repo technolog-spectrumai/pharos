@@ -173,6 +173,8 @@ export interface ChatChannelOptions {
   mayFound?: () => boolean;
   /** Offline delivery through a server's room mailbox (`mailbox.ts`, Demio's format). */
   mailbox?: ChatMailbox;
+  /** The Beacon a room created here uses (8.C2); none → the room is pure mesh. */
+  beaconForNewRoom?: () => string | undefined;
   /** `#tags`, `@mentions` and the sender's device on messages. */
   threads?: boolean;
   /** Small files (≤ 256 KiB) inline in a sealed message (`sendFile`, Demio's `file_inline`). */
@@ -570,12 +572,26 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     currentRoom.value = { ...currentRoom.value, participant_count: list.length };
   }
 
+  function roomBeacon(): string | undefined {
+    const slug = currentRoom.value?.slug;
+    return slug ? p2pRooms.value.find((r) => r.room === slug)?.beacon : undefined;
+  }
+  /** A member told us the room's Beacon: the first one heard is kept (8.C1). */
+  function learnBeacon(onion: unknown) {
+    const slug = currentRoom.value?.slug;
+    if (!slug || typeof onion !== "string" || !/^[a-z2-7]{56}\.onion$/.test(onion) || roomBeacon()) return;
+    const entry = p2pRooms.value.find((r) => r.room === slug);
+    if (entry) rememberP2pRoom({ ...entry, beacon: onion });
+  }
+
   async function announcePresence(reply = false) {
     if (mlsStatus.value !== "ready") return;
     await sendEncryptedMedia("presence", {
       device_id: mlsIdentity.value, name: displayName(),
       avatar: myAvatar.value,
       onion: myOnion.value, // where the others link to us
+      // The room's Beacon, inside the encryption, so every member uses it (8.C1).
+      ...(roomBeacon() ? { beacon: roomBeacon() } : {}),
       reply,
     }).catch(() => {});
   }
@@ -915,6 +931,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
                 avatar: (inner.avatar as string) || "",
                 onion: (inner.onion as string) || "",
               });
+              learnBeacon(inner.beacon);
               void refreshP2pRoster();
               if (!inner.reply) void announcePresence(true);
             }
@@ -1269,7 +1286,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     clearMessages();
     try {
       const res = await chatTransport.createRoom(name.trim());
-      rememberP2pRoom({ room: res.room, name: res.name, host: true, onion: res.onion });
+      rememberP2pRoom({ room: res.room, name: res.name, host: true, onion: res.onion, ...(options.beaconForNewRoom?.() ? { beacon: options.beaconForNewRoom!() } : {}) });
       enterP2pRoom(res.room, res.name, res.onion, { alone: true });
       void refreshP2pRoster();
       messages.value.push(

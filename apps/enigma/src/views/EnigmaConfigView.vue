@@ -37,6 +37,7 @@ import {
   type AppProfileState,
 } from "rakotis";
 import { OyaCard } from "petalite/primitives";
+import BeaconCard from "../components/BeaconCard.vue";
 import { OyaButton } from "petalite/primitives";
 import { OyaModal, OyaTextField } from "petalite/primitives";
 
@@ -646,6 +647,8 @@ async function clearSelectedOfflineData() {
         </div>
       </div>
     </OyaCard>
+
+    <BeaconCard :dark-mode="darkMode" />
 
     <!-- Connection timeout — room create/join give up (and the join modal auto-closes
          after connecting) once this many seconds elapse. -->

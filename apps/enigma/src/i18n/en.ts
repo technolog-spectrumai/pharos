@@ -418,4 +418,18 @@ export default {
     errNotAnInvitation: "That is not an invitation. Room tickets and room codes no longer let anyone in — ask for an invitation instead.",
     errGeneric: "This invitation could not be used.",
   },
+  beacon: {
+    title: "Your Beacon (optional)",
+    intro: "A Beacon is a small helper you run at home (a Raspberry Pi will do), reached only over Tor. It keeps a room’s messages for members who are offline. It can’t read them. Without one, rooms work directly between phones.",
+    newRoomsOnly: "Rooms you create from now on use it. A room keeps the Beacon it started with, and its members learn it inside the encryption.",
+    showKey: "This phone’s key",
+    remove: "Stop using it",
+    keyHint: "Only needed if your Beacon is set to \"only my phones\": on the Beacon, run  beacon allow NAME  followed by this key.",
+    scan: "Scan its code",
+    paste: "pharos-beacon:…",
+    use: "Use",
+    via: "Via Beacon",
+    direct: "Direct",
+    down: "Beacon unreachable",
+  },
 };

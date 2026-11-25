@@ -110,3 +110,17 @@ describe("MessageList", () => {
     expect(w.findAll("article")).toHaveLength(1);
   });
 });
+
+describe("ChatHeader — route", () => {
+  it("says Direct without a Beacon, Via Beacon with one, and when it is down", async () => {
+    const { beaconReach } = await import("../../src/beaconMailbox");
+    const onion = `${"a".repeat(56)}.onion`;
+    const mk = (rooms: unknown) =>
+      mount(ChatHeader, { props: { channel: channel({ p2pRooms: ref(rooms) }) as unknown as ChatChannel, controller: controller() as unknown as P2pRoomsController }, ...opts });
+    expect(mk([{ room: "r1", name: "R1" }]).get("[data-testid=room-route]").text()).toBe("Direct");
+    expect(mk([{ room: "r1", name: "R1", beacon: onion }]).get("[data-testid=room-route]").text()).toBe("Via Beacon");
+    beaconReach.r1 = "down";
+    expect(mk([{ room: "r1", name: "R1", beacon: onion }]).get("[data-testid=room-route]").text()).toBe("Beacon unreachable");
+    delete beaconReach.r1;
+  });
+});

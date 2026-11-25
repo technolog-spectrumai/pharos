@@ -3,7 +3,11 @@
 // MLS exporter (`mls_mailbox`, 8.B1) and move with every commit and every week, so
 // this keeps its own place per mailbox and hands the engine one running count.
 // Rooms without a Beacon (all of them until 8.C) do nothing here.
+import { reactive } from "vue";
 import type { ChatMailbox } from "rakotis";
+
+/** Whether each room's Beacon answered last time (8.C3): "ok" or "down". */
+export const beaconReach = reactive<Record<string, "ok" | "down">>({});
 
 // The engine's envelope names the room; Beacon gets only the sealed frame, and the
 // envelope is put back together here on the way in.
@@ -27,6 +31,17 @@ export function beaconMailbox(deps: BeaconMailboxDeps): ChatMailbox {
   const box = (room: string, weekOffset: number) =>
     deps.invoke<Box>("mls_mailbox", { room, identity: deps.identity(), weekOffset });
 
+  async function track<T>(room: string, p: Promise<T>): Promise<T> {
+    try {
+      const v = await p;
+      beaconReach[room] = "ok";
+      return v;
+    } catch (e) {
+      beaconReach[room] = "down"; // the mesh carries on; the engine retries later
+      throw e;
+    }
+  }
+
   return {
     everyMs: 30_000,
     async post(body) {
@@ -35,7 +50,7 @@ export function beaconMailbox(deps: BeaconMailboxDeps): ChatMailbox {
       if (!onion) return;
       const b = await box(room, 0);
       if (typeof body.frame !== "string") return;
-      await deps.invoke("beacon_post", { onion, id: b.id, token: b.token, body: body.frame });
+      await track(room, deps.invoke("beacon_post", { onion, id: b.id, token: b.token, body: body.frame }));
     },
     async fetch(after, room) {
       const onion = room && deps.beaconFor(room);
@@ -48,7 +63,7 @@ export function beaconMailbox(deps: BeaconMailboxDeps): ChatMailbox {
         try { b = await box(room, offset); } catch { continue; } // no group yet
         for (;;) {
           const from = cursors.get(b.id) ?? 0;
-          const page = await deps.invoke<Posted[]>("beacon_fetch", { onion, id: b.id, token: b.token, after: from });
+          const page = await track(room, deps.invoke<Posted[]>("beacon_fetch", { onion, id: b.id, token: b.token, after: from }));
           for (const m of page) {
             cursors.set(b.id, Math.max(cursors.get(b.id) ?? 0, m.seq));
             out.push({ id: ++count, body: JSON.stringify({ kind: KIND, room, frame: m.body }) });

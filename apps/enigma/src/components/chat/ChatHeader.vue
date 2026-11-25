@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import type { ChatChannel } from "rakotis";
 import type { P2pRoomsController } from "./useP2pRooms";
 import ParticipantsModal from "./ParticipantsModal.vue";
+import { beaconReach } from "../../beaconMailbox";
 
 // One compact bar, as in any messenger: the room's name with
 // its state on one line under it, Invite, and a menu for everything rarer.
@@ -40,6 +41,14 @@ const reach = computed(() => {
   }
 });
 
+/** Which route the room uses (8.C3): its Beacon and the mesh, or the mesh only. */
+const route = computed(() => {
+  const e = entry.value;
+  if (!e?.beacon) return { text: t("beacon.direct"), tone: "opacity-70" };
+  if (beaconReach[e.room] === "down") return { text: t("beacon.down"), tone: "text-warn-dark" };
+  return { text: t("beacon.via"), tone: "opacity-70" };
+});
+
 const menuOpen = ref(false);
 const participantsOpen = ref(false);
 function run(fn: () => void) {
@@ -63,6 +72,8 @@ function invite() {
         <span :class="encryption.tone">{{ encryption.text }}</span>
         <span class="opacity-40">·</span>
         <span class="truncate opacity-70">{{ reach }}</span>
+        <span class="opacity-40">·</span>
+        <span class="truncate" :class="route.tone" data-testid="room-route">{{ route.text }}</span>
       </p>
     </div>
 
