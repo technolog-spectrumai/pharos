@@ -1,6 +1,6 @@
 // Enigma Beacon: run and manage a Beacon. State comes from Rust (src/lib.rs on
 // src/model.rs); the .slint files lay it out and raise callbacks.
-import { LineEdit, ScrollView, Switch, Palette } from "std-widgets.slint";
+import { LineEdit, ScrollView, Switch, Palette, ComboBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { PrimaryButton, Card, BeaconToggle } from "widgets.slint";
 
@@ -145,6 +145,11 @@ export component AppWindow inherits Window {
 
     // Screenshots and tests switch light/dark here (Theme.dark follows Palette.color-scheme).
     public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
+    /// Follow the system's light/dark setting again.
+    public function set-system-theme() { Palette.color-scheme = ColorScheme.unknown; }
+    /// 0 system, 1 light, 2 dark (Settings → Appearance).
+    in-out property <int> theme-choice: 0;
+    callback set-theme(int);
 
     in-out property <Screen> screen: Screen.overview;
     in property <bool> demo;
@@ -460,6 +465,18 @@ export component AppWindow inherits Window {
                             Switch { text: root.page-on ? "served at / on the onion" : "off"; checked: root.page-on; toggled => { root.set-page(self.checked); } }
                         }
                         HorizontalLayout { alignment: start; SmallButton { text: "Check again"; clicked => { root.recheck(); } } }
+                    }
+                    Card {
+                        title: "Appearance";
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text { text: "Theme"; color: Theme.muted; width: 150px; vertical-alignment: center; }
+                            ComboBox {
+                                model: ["System", "Light", "Dark"];
+                                current-index: root.theme-choice;
+                                selected => { root.theme-choice = self.current-index; root.set-theme(self.current-index); }
+                            }
+                        }
                     }
                     Card {
                         title: "Limits";

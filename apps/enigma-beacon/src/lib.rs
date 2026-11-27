@@ -237,6 +237,18 @@ pub fn build(m: Model) -> Result<(AppWindow, Rc<RefCell<Model>>), slint::Platfor
             refresh(&ui, &snap);
         });
     }
+    {
+        let w = ui.as_weak();
+        ui.on_set_theme(move |choice| {
+            let Some(ui) = w.upgrade() else { return };
+            apply_theme(&ui, choice);
+            if let Err(e) = save_theme(choice) {
+                settings_result(&ui, Err(e));
+            }
+        });
+    }
+    ui.set_theme_choice(load_theme());
+    apply_theme(&ui, ui.get_theme_choice());
     ui.on_save_settings(wire(Box::new(|ui, m| {
         let r = (|| {
             m.set_name(&ui.get_name())?;
@@ -292,4 +304,67 @@ pub fn run_built(ui: AppWindow, m: Rc<RefCell<Model>>) -> Result<(), slint::Plat
     ui.run()?;
     m.borrow_mut().stop();
     Ok(())
+}
+
+// ── theme (a viewer preference, not part of Beacon's config.yaml) ─────────────
+
+/// Where the chosen theme is kept: `$XDG_CONFIG_HOME/enigma-beacon/theme`
+/// (or `~/.config/enigma-beacon/theme`). One word: system, light or dark.
+fn theme_file() -> Option<std::path::PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".config")))?;
+    Some(base.join("enigma-beacon").join("theme"))
+}
+
+/// 0 system, 1 light, 2 dark.
+pub(crate) fn theme_from_word(w: &str) -> i32 {
+    match w.trim() {
+        "light" => 1,
+        "dark" => 2,
+        _ => 0,
+    }
+}
+
+pub(crate) fn theme_word(choice: i32) -> &'static str {
+    match choice {
+        1 => "light",
+        2 => "dark",
+        _ => "system",
+    }
+}
+
+fn load_theme() -> i32 {
+    theme_file().and_then(|p| std::fs::read_to_string(p).ok()).map(|s| theme_from_word(&s)).unwrap_or(0)
+}
+
+fn save_theme(choice: i32) -> anyhow::Result<()> {
+    let p = theme_file().ok_or_else(|| anyhow::anyhow!("no home folder to save the theme in"))?;
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&p, format!("{}\n", theme_word(choice)))?;
+    Ok(())
+}
+
+fn apply_theme(ui: &AppWindow, choice: i32) {
+    match choice {
+        1 => ui.invoke_set_dark(false),
+        2 => ui.invoke_set_dark(true),
+        _ => ui.invoke_set_system_theme(),
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+
+    #[test]
+    fn theme_words_round_trip_and_default_to_system() {
+        for c in 0..3 {
+            assert_eq!(theme_from_word(theme_word(c)), c);
+        }
+        assert_eq!(theme_from_word("purple"), 0);
+        assert_eq!(theme_from_word("dark\n"), 2);
+    }
 }

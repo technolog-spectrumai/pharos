@@ -64,7 +64,9 @@ fn main() -> std::process::ExitCode {
     let dark = args.iter().any(|a| a == "--dark").then_some(true).or(args.iter().any(|a| a == "--light").then_some(false));
     let r = (|| {
         let (ui, m) = enigma_beacon::build(m)?;
+        // --dark / --light win over the saved choice, for this run only.
         if let Some(d) = dark {
+            ui.set_theme_choice(if d { 2 } else { 1 });
             ui.invoke_set_dark(d);
         }
         enigma_beacon::run_built(ui, m)
