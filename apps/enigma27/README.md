@@ -2,7 +2,7 @@
 
 Enigma's main app in [Slint](https://slint.dev) 1.x, for desktop and Android (stage 5 of
 `b2.md`). Binary: `enigma27`. It is a **client**: it attaches to *Your Beacon* (a Raspberry
-Pi or Linux PC running `apps/enigma-beacon` or the `beacon` binary) over Tor and never
+Pi or Linux PC running `apps/pharos-lighthouse` or the `beacon` binary) over Tor and never
 runs a Beacon itself (b2.md: client and Beacon are separate apps). Parity with the Tauri
 app: `PARITY.md`.
 

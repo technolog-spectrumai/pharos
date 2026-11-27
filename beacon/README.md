@@ -6,7 +6,7 @@ Proteus before that); renamed only, its protocol is unchanged.
 
 **Linux only (desktop or Raspberry Pi).** On other systems `beacon` builds (so
 the workspace does) but only says so and exits. To manage it with a window, see
-[../apps/enigma-beacon](../apps/enigma-beacon/README.md).
+[../apps/pharos-lighthouse](../apps/pharos-lighthouse/README.md).
 
 **Beacon and Enigma27.** Beacon serves the older Pharos friend protocol
 ([../PROTOCOL.md](../PROTOCOL.md), Part B), which the friend client spoke.

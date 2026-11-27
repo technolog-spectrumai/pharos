@@ -1,11 +1,11 @@
 //! Render the Beacon app's screens off-screen (software renderer, 2x) to PNGs in
-//! `docs/screens/beacon-app/`: `cargo run -p enigma-beacon --example beacon-screens`.
+//! `docs/screens/lighthouse/`: `cargo run -p pharos-lighthouse --example lighthouse-screens`.
 
 use std::path::{Path, PathBuf};
 
-use enigma_beacon::headless::{self, Shot};
-use enigma_beacon::model::{Mode, Model};
-use enigma_beacon::{build, refresh, Screen};
+use pharos_lighthouse::headless::{self, Shot};
+use pharos_lighthouse::model::{Mode, Model};
+use pharos_lighthouse::{build, lh, refresh, LhScreen as Screen};
 use slint::ComponentHandle;
 
 fn save(dir: &Path, name: &str, s: &Shot) {
@@ -19,7 +19,7 @@ fn save(dir: &Path, name: &str, s: &Shot) {
 }
 
 fn main() {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screens/beacon-app");
+    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screens/lighthouse");
     std::fs::create_dir_all(&out).unwrap();
     headless::init();
     let (w, h, scale) = (1100, 720, 2.0);
@@ -35,12 +35,12 @@ fn main() {
     save(&out, "overview-dark", &headless::render(&ui, w, h, scale));
     ui.invoke_set_dark(false);
     for (screen, name) in [(Screen::Clients, "clients"), (Screen::Rooms, "rooms"), (Screen::Settings, "settings"), (Screen::Log, "log")] {
-        ui.set_screen(screen);
+        lh(&ui).set_screen(screen);
         let hh = if name == "settings" { 900 } else { h };
         save(&out, name, &headless::render(&ui, w, hh, scale));
     }
     // A Pi's 800×480 touch screen.
-    ui.set_screen(Screen::Overview);
+    lh(&ui).set_screen(Screen::Overview);
     save(&out, "pi-800x480", &headless::render(&ui, 800, 480, 1.0));
     ui.hide().unwrap();
 }

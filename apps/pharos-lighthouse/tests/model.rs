@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 use beacon::config::Config;
 use beacon::runner::{Listen, Phase};
 use beacon_node::link::{LinkCfg, NoDialer};
-use enigma_beacon::model::{Limits, Mode, Model};
+use pharos_lighthouse::model::{Limits, Mode, Model};
 use enigma_client::{Client, ClientConfig};
 use enigma_core::Transport;
 
 fn onion() -> String {
-    enigma_beacon::model::demo_onion()
+    pharos_lighthouse::model::demo_onion()
 }
 const KEY: &str = "descriptor:x25519:ZDUVQQ7IKBP6SO6X5HW6IT2BXHS4W5QQJ6E6HD3HNP3R2KRDKXGA";
 

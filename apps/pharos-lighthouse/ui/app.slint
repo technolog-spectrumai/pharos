@@ -1,4 +1,4 @@
-// Enigma Beacon: run and manage a Beacon. State comes from Rust (src/lib.rs on
+// Pharos Lighthouse: run and manage a Beacon. State comes from Rust (src/lib.rs on
 // src/model.rs); the .slint files lay it out and raise callbacks.
 import { LineEdit, ScrollView, Switch, Palette, ComboBox } from "std-widgets.slint";
 import { Theme } from "theme.slint";
@@ -6,11 +6,11 @@ import { PrimaryButton, Card, BeaconToggle } from "widgets.slint";
 
 export { Theme }
 
-export enum Screen { overview, clients, rooms, settings, log }
+export enum LhScreen { overview, clients, rooms, settings, log }
 
-export struct ClientItem { id: string, online: bool, seen: string, rooms: int, queued: string }
-export struct RoomItem { id: string, online: int, members: int, linked: string, queued: string }
-export struct LogItem { time: string, text: string, kind: int }   // 0 info, 1 good, 2 bad
+export struct LhClient { id: string, online: bool, seen: string, rooms: int, queued: string }
+export struct LhRoom { id: string, online: int, members: int, linked: string, queued: string }
+export struct LhLog { time: string, text: string, kind: int }   // 0 info, 1 good, 2 bad
 
 component NavItem inherits Rectangle {
     in property <string> icon;
@@ -135,62 +135,54 @@ component Field inherits VerticalLayout {
     }
 }
 
-export component AppWindow inherits Window {
-    title: "Enigma Beacon";
-    preferred-width: 1100px;
-    preferred-height: 720px;
-    min-width: 640px;
-    min-height: 420px;
-    background: Theme.bg;
+/// The Lighthouse's state and callbacks: Rust (src/glue.rs) talks to this global, so the
+/// same view runs in this app's window and inside enigma27-combo's.
+export global Lh {
 
-    // Screenshots and tests switch light/dark here (Theme.dark follows Palette.color-scheme).
-    public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
-    /// Follow the system's light/dark setting again.
-    public function set-system-theme() { Palette.color-scheme = ColorScheme.unknown; }
     /// 0 system, 1 light, 2 dark (Settings → Appearance).
     in-out property <int> theme-choice: 0;
     callback set-theme(int);
 
-    in-out property <Screen> screen: Screen.overview;
-    in property <bool> demo;
+    in-out property <LhScreen> screen: LhScreen.overview;
+    in-out property <bool> demo;
 
     // Overview
-    in property <bool> on;                 // switch position (running or starting)
-    in property <string> phase: "off";
-    in property <int> phase-kind;          // 0 off, 1 working, 2 online, 3 error
-    in property <string> error;
-    in property <string> onion;
-    in property <string> code;
-    in property <image> qr;
-    in property <string> uptime;
-    in property <string> tor;
-    in property <int> clients-online;
-    in property <int> clients-total;
-    in property <int> rooms-total;
-    in property <int> links-total;
-    in property <string> toast;
+    in-out property <bool> on;                 // switch position (running or starting)
+    in-out property <string> phase: "off";
+    in-out property <int> phase-kind;          // 0 off, 1 working, 2 online, 3 error
+    in-out property <string> error;
+    in-out property <string> onion;
+    in-out property <string> code;
+    in-out property <image> qr;
+    in-out property <string> uptime;
+    in-out property <string> tor;
+    in-out property <int> clients-online;
+    in-out property <int> clients-total;
+    in-out property <int> rooms-total;
+    in-out property <int> links-total;
+    in-out property <string> toast;
 
     // Clients
-    in property <[ClientItem]> clients;
-    in property <bool> restricted;
-    in property <bool> restart-needed;
-    in property <[string]> allowed;
-    in property <string> allow-message;
-    in property <bool> allow-error;
+    in-out property <[LhClient]> clients;
+    in-out property <bool> restricted;
+    in-out property <bool> restart-needed;
+    in-out property <[string]> allowed;
+    in-out property <string> allow-message;
+    in-out property <bool> allow-error;
     in-out property <string> allow-name;
     in-out property <string> allow-key;
 
     // Rooms
-    in property <[RoomItem]> rooms;
+    in-out property <[LhRoom]> rooms;
 
     // Settings
     in-out property <string> name;
-    in property <string> data-dir;
-    in property <string> key-status;
-    in property <bool> key-ok;
-    in property <string> disk-status;
-    in property <bool> disk-ok;
-    in property <bool> page-on;
+    in-out property <string> data-dir;
+    in-out property <string> key-status;
+    in-out property <bool> key-ok;
+    in-out property <string> disk-status;
+    in-out property <bool> disk-ok;
+    in-out property <bool> page-on;
     in-out property <string> max-clients;
     in-out property <string> queue-frames;
     in-out property <string> queue-mb;
@@ -198,11 +190,11 @@ export component AppWindow inherits Window {
     in-out property <string> message-days;
     in-out property <string> release-delay;
     in-out property <string> backup-path;
-    in property <string> settings-message;
-    in property <bool> settings-error;
+    in-out property <string> settings-message;
+    in-out property <bool> settings-error;
 
     // Log
-    in property <[LogItem]> log;
+    in-out property <[LhLog]> log;
 
     callback toggle();
     callback copied(string);
@@ -214,13 +206,18 @@ export component AppWindow inherits Window {
     callback backup();
     callback recheck();
 
+}
+
+/// The whole Lighthouse UI (sidebar + screens), without a window.
+export component LighthouseView inherits Rectangle {
+    background: Theme.bg;
     // A hidden text field to put text on the clipboard.
     clip := TextInput { visible: false; width: 0px; height: 0px; }
     function copy(t: string, what: string) {
         clip.text = t;
         clip.select-all();
         clip.copy();
-        root.copied(what);
+        Lh.copied(what);
     }
 
     HorizontalLayout {
@@ -242,24 +239,24 @@ export component AppWindow inherits Window {
                         Text { text: "⛯"; color: Theme.header-text; font-size: 26px; vertical-alignment: center; }
                         VerticalLayout {
                             alignment: center;
-                            Text { text: "Beacon"; color: Theme.header-text; font-size: Theme.font-large; font-weight: 800; }
+                            Text { text: "Lighthouse"; color: Theme.header-text; font-size: Theme.font-large; font-weight: 800; }
                             HorizontalLayout {
                                 spacing: 6px;
-                                Dot { y: (parent.height - 10px) / 2; c: root.phase-kind == 2 ? #4fc1b0 : root.phase-kind == 1 ? #e0b55f : root.phase-kind == 3 ? #e07a5f : #8a93a6; }
-                                Text { text: root.phase; color: #f2f3f5c0; font-size: 11px; }
+                                Dot { y: (parent.height - 10px) / 2; c: Lh.phase-kind == 2 ? #4fc1b0 : Lh.phase-kind == 1 ? #e0b55f : Lh.phase-kind == 3 ? #e07a5f : #8a93a6; }
+                                Text { text: Lh.phase; color: #f2f3f5c0; font-size: 11px; }
                             }
                         }
                     }
                 }
                 Rectangle { height: 8px; }
-                NavItem { icon: "⏻"; text: "Overview"; active: root.screen == Screen.overview; clicked => { root.screen = Screen.overview; } }
-                NavItem { icon: "📱"; text: "Clients"; badge: root.clients-online > 0 ? root.clients-online : ""; active: root.screen == Screen.clients; clicked => { root.screen = Screen.clients; } }
-                NavItem { icon: "#"; text: "Rooms"; badge: root.rooms-total > 0 ? root.rooms-total : ""; active: root.screen == Screen.rooms; clicked => { root.screen = Screen.rooms; } }
-                NavItem { icon: "⚙"; text: "Settings"; active: root.screen == Screen.settings; clicked => { root.screen = Screen.settings; } }
-                NavItem { icon: "☰"; text: "Log"; active: root.screen == Screen.log; clicked => { root.screen = Screen.log; } }
+                NavItem { icon: "⏻"; text: "Overview"; active: Lh.screen == LhScreen.overview; clicked => { Lh.screen = LhScreen.overview; } }
+                NavItem { icon: "📱"; text: "Clients"; badge: Lh.clients-online > 0 ? Lh.clients-online : ""; active: Lh.screen == LhScreen.clients; clicked => { Lh.screen = LhScreen.clients; } }
+                NavItem { icon: "#"; text: "Rooms"; badge: Lh.rooms-total > 0 ? Lh.rooms-total : ""; active: Lh.screen == LhScreen.rooms; clicked => { Lh.screen = LhScreen.rooms; } }
+                NavItem { icon: "⚙"; text: "Settings"; active: Lh.screen == LhScreen.settings; clicked => { Lh.screen = LhScreen.settings; } }
+                NavItem { icon: "☰"; text: "Log"; active: Lh.screen == LhScreen.log; clicked => { Lh.screen = LhScreen.log; } }
                 Rectangle { vertical-stretch: 1; }
-                if root.demo : Text { text: "demo mode: fake clients and rooms"; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
-                Text { text: "Counts and ids only: a Beacon never sees names or messages."; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+                if Lh.demo : Text { text: "demo mode: fake clients and rooms"; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+                Text { text: "Counts and ids only: a Lighthouse never sees names or messages."; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
             }
         }
 
@@ -267,25 +264,25 @@ export component AppWindow inherits Window {
         Rectangle {
             horizontal-stretch: 1;
             // Overview
-            if root.screen == Screen.overview : sv1 := ScrollView {
+            if Lh.screen == LhScreen.overview : sv1 := ScrollView {
                 VerticalLayout {
                     width: sv1.visible-width;
                     padding: 24px;
                     spacing: 16px;
-                    ScreenTitle { title: "Overview"; sub: "Your Beacon keeps messages for your phones while they are away and links them to friends' Beacons, over Tor only."; }
+                    ScreenTitle { title: "Overview"; sub: "Your Lighthouse keeps messages for your phones while they are away and links them to friends' Lighthouses, over Tor only."; }
                     BeaconToggle {
-                        on: root.on;
-                        label-on: "Beacon is " + root.phase;
-                        label-off: "Start Beacon";
-                        detail: root.phase-kind == 3 ? root.error : root.on ? (root.uptime != "" ? "up " + root.uptime + " · tap to stop" : "tap to stop") : "off · tap to start serving on an onion service";
-                        toggled => { root.toggle(); }
+                        on: Lh.on;
+                        label-on: "Lighthouse is " + Lh.phase;
+                        label-off: "Start Lighthouse";
+                        detail: Lh.phase-kind == 3 ? Lh.error : Lh.on ? (Lh.uptime != "" ? "up " + Lh.uptime + " · tap to stop" : "tap to stop") : "off · tap to start serving on an onion service";
+                        toggled => { Lh.toggle(); }
                     }
                     HorizontalLayout {
                         spacing: 12px;
-                        Stat { value: root.clients-online + " / " + root.clients-total; label: "phones online / known"; horizontal-stretch: 1; }
-                        Stat { value: root.rooms-total; label: "rooms"; horizontal-stretch: 1; }
-                        Stat { value: root.links-total; label: "Beacon links"; horizontal-stretch: 1; }
-                        Stat { value: root.uptime == "" ? "—" : root.uptime; label: "uptime"; horizontal-stretch: 1; }
+                        Stat { value: Lh.clients-online + " / " + Lh.clients-total; label: "phones online / known"; horizontal-stretch: 1; }
+                        Stat { value: Lh.rooms-total; label: "rooms"; horizontal-stretch: 1; }
+                        Stat { value: Lh.links-total; label: "Lighthouse links"; horizontal-stretch: 1; }
+                        Stat { value: Lh.uptime == "" ? "—" : Lh.uptime; label: "uptime"; horizontal-stretch: 1; }
                     }
                     HorizontalLayout {
                         spacing: 16px;
@@ -293,45 +290,45 @@ export component AppWindow inherits Window {
                         Card {
                             title: "Address";
                             horizontal-stretch: 1;
-                            KeyValue { key: "State"; value: root.phase; value-color: root.phase-kind == 3 ? Theme.warn : root.phase-kind == 2 ? Theme.ok : Theme.text; }
-                            KeyValue { key: "Tor"; value: root.tor; }
-                            KeyValue { key: "Onion"; value: root.onion == "" ? "made when first served over Tor" : root.onion; }
+                            KeyValue { key: "State"; value: Lh.phase; value-color: Lh.phase-kind == 3 ? Theme.warn : Lh.phase-kind == 2 ? Theme.ok : Theme.text; }
+                            KeyValue { key: "Tor"; value: Lh.tor; }
+                            KeyValue { key: "Onion"; value: Lh.onion == "" ? "made when first served over Tor" : Lh.onion; }
                             HorizontalLayout {
                                 spacing: 8px;
                                 alignment: start;
-                                SmallButton { text: "Copy address"; clicked => { root.copy(root.onion, "address"); } }
-                                SmallButton { text: "Copy code"; clicked => { root.copy(root.code, "code"); } }
+                                SmallButton { text: "Copy address"; clicked => { root.copy(Lh.onion, "address"); } }
+                                SmallButton { text: "Copy code"; clicked => { root.copy(Lh.code, "code"); } }
                             }
-                            if root.toast != "" : Text { text: root.toast; color: Theme.ok; font-size: Theme.font-small; }
+                            if Lh.toast != "" : Text { text: Lh.toast; color: Theme.ok; font-size: Theme.font-small; }
                             Text {
-                                text: "In Enigma: Settings → Your Beacon → \"Scan its code\", or paste the code and tap \"Use\". Phones on the list (Clients) can find it when \"Only my phones\" is on.";
+                                text: "In Enigma27: Settings → Your Beacon → \"Scan its code\", or paste the code and tap \"Use\". Phones on the list (Clients) can find it when \"Only my phones\" is on.";
                                 color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;
                             }
                             Rectangle { vertical-stretch: 1; }
                         }
                         Card {
-                            title: "Beacon code";
+                            title: "Lighthouse code";
                             width: 300px;
-                            if root.code != "" : Rectangle {
+                            if Lh.code != "" : Rectangle {
                                 height: 264px;
                                 background: white;
                                 border-radius: 8px;
-                                Image { source: root.qr; width: 256px; height: 256px; image-rendering: pixelated; }
+                                Image { source: Lh.qr; width: 256px; height: 256px; image-rendering: pixelated; }
                             }
-                            if root.code == "" : Rectangle {
+                            if Lh.code == "" : Rectangle {
                                 height: 264px;
                                 background: Theme.panel-2;
                                 border-radius: 8px;
-                                Text { text: "No code yet: start the Beacon\nonce to make its address."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                                Text { text: "No code yet: start the Lighthouse\nonce to make its address."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
                             }
-                            Text { text: root.code; color: Theme.muted; font-size: 10px; wrap: char-wrap; min-width: 0px; }
+                            Text { text: Lh.code; color: Theme.muted; font-size: 10px; wrap: char-wrap; min-width: 0px; }
                         }
                     }
                 }
             }
 
             // Clients
-            if root.screen == Screen.clients : VerticalLayout {
+            if Lh.screen == LhScreen.clients : VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
                 ScreenTitle { title: "Clients"; sub: "Phones attached now and recently. Ids are each phone's device key; nothing here says who owns it."; }
@@ -339,11 +336,11 @@ export component AppWindow inherits Window {
                 Rectangle {
                     vertical-stretch: 1;
                     min-height: 120px;
-                    if root.clients.length == 0 : Text { text: root.on ? "No phone has attached yet." : "The Beacon is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    if Lh.clients.length == 0 : Text { text: Lh.on ? "No phone has attached yet." : "The Lighthouse is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
                     ScrollView {
                         VerticalLayout {
                             alignment: start;
-                            for c in root.clients : Rectangle {
+                            for c in Lh.clients : Rectangle {
                                 height: 40px;
                                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
                                 HorizontalLayout {
@@ -371,15 +368,15 @@ export component AppWindow inherits Window {
                     HorizontalLayout {
                         spacing: 12px;
                         Text {
-                            text: "When on, only phones on this list can find the Beacon's onion (Tor client authorisation). Mailbox tokens still guard each mailbox when off.";
+                            text: "When on, only phones on this list can find the Lighthouse's onion (Tor client authorisation). Mailbox tokens still guard each mailbox when off.";
                             color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; horizontal-stretch: 1;
                         }
-                        Switch { text: root.restricted ? "on" : "off"; checked: root.restricted; toggled => { root.set-restricted(self.checked); } }
+                        Switch { text: Lh.restricted ? "on" : "off"; checked: Lh.restricted; toggled => { Lh.set-restricted(self.checked); } }
                     }
-                    if root.restart-needed : Text { text: "Restart the Beacon for this to take effect."; color: Theme.warn; font-size: Theme.font-small; }
+                    if Lh.restart-needed : Text { text: "Restart the Lighthouse for this to take effect."; color: Theme.warn; font-size: Theme.font-small; }
                     HorizontalLayout {
                         spacing: 8px;
-                        for n in root.allowed : Rectangle {
+                        for n in Lh.allowed : Rectangle {
                             height: 30px;
                             border-radius: 15px;
                             background: Theme.selected;
@@ -394,37 +391,37 @@ export component AppWindow inherits Window {
                                     y: 4px;
                                     border-radius: 11px;
                                     background: xa.has-hover ? Theme.warn : Theme.border;
-                                    xa := TouchArea { clicked => { root.deny(n); } }
+                                    xa := TouchArea { clicked => { Lh.deny(n); } }
                                     Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
                                 }
                             }
                         }
-                        if root.allowed.length == 0 : Text { text: "No phone on the list yet."; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+                        if Lh.allowed.length == 0 : Text { text: "No phone on the list yet."; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
                         Rectangle { horizontal-stretch: 1; }
                     }
                     HorizontalLayout {
                         spacing: 8px;
-                        LineEdit { text <=> root.allow-name; placeholder-text: "name (anna-phone)"; width: 180px; }
-                        LineEdit { text <=> root.allow-key; placeholder-text: "descriptor:x25519:… (from the phone)"; horizontal-stretch: 1; }
-                        PrimaryButton { text: "Allow"; clicked => { root.allow(); } }
+                        LineEdit { text <=> Lh.allow-name; placeholder-text: "name (anna-phone)"; width: 180px; }
+                        LineEdit { text <=> Lh.allow-key; placeholder-text: "descriptor:x25519:… (from the phone)"; horizontal-stretch: 1; }
+                        PrimaryButton { text: "Allow"; clicked => { Lh.allow(); } }
                     }
-                    if root.allow-message != "" : Text { text: root.allow-message; color: root.allow-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
+                    if Lh.allow-message != "" : Text { text: Lh.allow-message; color: Lh.allow-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
                 }
             }
 
             // Rooms
-            if root.screen == Screen.rooms : VerticalLayout {
+            if Lh.screen == LhScreen.rooms : VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
-                ScreenTitle { title: "Rooms"; sub: "Route ids only: a Beacon never knows a room's name or who is in it beyond device keys."; }
-                TableHead { cols: ["Route", "Local online", "Linked Beacons", "Queued"]; weights: [2, 1.2, 2.2, 1.6]; }
+                ScreenTitle { title: "Rooms"; sub: "Route ids only: a Lighthouse never knows a room's name or who is in it beyond device keys."; }
+                TableHead { cols: ["Route", "Local online", "Linked Lighthouses", "Queued"]; weights: [2, 1.2, 2.2, 1.6]; }
                 Rectangle {
                     vertical-stretch: 1;
-                    if root.rooms.length == 0 : Text { text: root.on ? "No rooms yet." : "The Beacon is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    if Lh.rooms.length == 0 : Text { text: Lh.on ? "No rooms yet." : "The Lighthouse is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
                     ScrollView {
                         VerticalLayout {
                             alignment: start;
-                            for r in root.rooms : Rectangle {
+                            for r in Lh.rooms : Rectangle {
                                 height: 40px;
                                 Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
                                 HorizontalLayout {
@@ -443,28 +440,28 @@ export component AppWindow inherits Window {
             }
 
             // Settings
-            if root.screen == Screen.settings : sv2 := ScrollView {
+            if Lh.screen == LhScreen.settings : sv2 := ScrollView {
                 VerticalLayout {
                     width: sv2.visible-width;
                     padding: 24px;
                     spacing: 16px;
                     ScreenTitle { title: "Settings"; sub: "Saved to config.yaml; the beacon command line reads the same file. Limits are in force from the next start."; }
                     Card {
-                        title: "This Beacon";
+                        title: "This Lighthouse";
                         HorizontalLayout {
                             spacing: 12px;
                             Text { text: "Name"; color: Theme.muted; width: 150px; vertical-alignment: center; }
-                            LineEdit { text <=> root.name; horizontal-stretch: 1; }
+                            LineEdit { text <=> Lh.name; horizontal-stretch: 1; }
                         }
-                        KeyValue { key: "Data folder"; value: root.data-dir; }
-                        KeyValue { key: "Master key"; value: root.key-status; value-color: root.key-ok ? Theme.ok : Theme.warn; }
-                        KeyValue { key: "Disk"; value: root.disk-status; value-color: root.disk-ok ? Theme.ok : Theme.warn; }
+                        KeyValue { key: "Data folder"; value: Lh.data-dir; }
+                        KeyValue { key: "Master key"; value: Lh.key-status; value-color: Lh.key-ok ? Theme.ok : Theme.warn; }
+                        KeyValue { key: "Disk"; value: Lh.disk-status; value-color: Lh.disk-ok ? Theme.ok : Theme.warn; }
                         HorizontalLayout {
                             spacing: 12px;
                             Text { text: "Page with the code"; color: Theme.muted; width: 150px; vertical-alignment: center; }
-                            Switch { text: root.page-on ? "served at / on the onion" : "off"; checked: root.page-on; toggled => { root.set-page(self.checked); } }
+                            Switch { text: Lh.page-on ? "served at / on the onion" : "off"; checked: Lh.page-on; toggled => { Lh.set-page(self.checked); } }
                         }
-                        HorizontalLayout { alignment: start; SmallButton { text: "Check again"; clicked => { root.recheck(); } } }
+                        HorizontalLayout { alignment: start; SmallButton { text: "Check again"; clicked => { Lh.recheck(); } } }
                     }
                     Card {
                         title: "Appearance";
@@ -473,8 +470,8 @@ export component AppWindow inherits Window {
                             Text { text: "Theme"; color: Theme.muted; width: 150px; vertical-alignment: center; }
                             ComboBox {
                                 model: ["System", "Light", "Dark"];
-                                current-index: root.theme-choice;
-                                selected => { root.theme-choice = self.current-index; root.set-theme(self.current-index); }
+                                current-index: Lh.theme-choice;
+                                selected => { Lh.theme-choice = self.current-index; Lh.set-theme(self.current-index); }
                             }
                         }
                     }
@@ -483,33 +480,33 @@ export component AppWindow inherits Window {
                         GridLayout {
                             spacing: 12px;
                             Row {
-                                Field { label: "Phones attached at once"; value <=> root.max-clients; }
-                                Field { label: "Queue per phone and room"; value <=> root.queue-frames; unit: "frames"; }
-                                Field { label: "Queue size per phone and room"; value <=> root.queue-mb; unit: "MB"; }
+                                Field { label: "Phones attached at once"; value <=> Lh.max-clients; }
+                                Field { label: "Queue per phone and room"; value <=> Lh.queue-frames; unit: "frames"; }
+                                Field { label: "Queue size per phone and room"; value <=> Lh.queue-mb; unit: "MB"; }
                             }
                             Row {
-                                Field { label: "Keep queued frames"; value <=> root.queue-days; unit: "days"; }
-                                Field { label: "Keep mailbox messages"; value <=> root.message-days; unit: "days"; }
-                                Field { label: "Release delay (random up to)"; value <=> root.release-delay; unit: "s"; }
+                                Field { label: "Keep queued frames"; value <=> Lh.queue-days; unit: "days"; }
+                                Field { label: "Keep mailbox messages"; value <=> Lh.message-days; unit: "days"; }
+                                Field { label: "Release delay (random up to)"; value <=> Lh.release-delay; unit: "s"; }
                             }
                         }
-                        HorizontalLayout { alignment: start; PrimaryButton { text: "Save"; clicked => { root.save-settings(); } } }
+                        HorizontalLayout { alignment: start; PrimaryButton { text: "Save"; clicked => { Lh.save-settings(); } } }
                     }
                     Card {
                         title: "Backup";
                         Text { text: "A consistent copy of the database. Back up the master key separately: the copy is sealed with it."; color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; }
                         HorizontalLayout {
                             spacing: 8px;
-                            LineEdit { text <=> root.backup-path; horizontal-stretch: 1; }
-                            PrimaryButton { text: "Back up"; clicked => { root.backup(); } }
+                            LineEdit { text <=> Lh.backup-path; horizontal-stretch: 1; }
+                            PrimaryButton { text: "Back up"; clicked => { Lh.backup(); } }
                         }
                     }
-                    if root.settings-message != "" : Text { text: root.settings-message; color: root.settings-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
+                    if Lh.settings-message != "" : Text { text: Lh.settings-message; color: Lh.settings-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
                 }
             }
 
             // Log
-            if root.screen == Screen.log : VerticalLayout {
+            if Lh.screen == LhScreen.log : VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
                 ScreenTitle { title: "Log"; sub: "Recent events, newest first: start and stop, links, refusals with their reason."; }
@@ -519,12 +516,12 @@ export component AppWindow inherits Window {
                     border-radius: Theme.radius;
                     border-width: 1px;
                     border-color: Theme.border;
-                    if root.log.length == 0 : Text { text: "Nothing yet."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    if Lh.log.length == 0 : Text { text: "Nothing yet."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
                     ScrollView {
                         VerticalLayout {
                             padding: 8px;
                             alignment: start;
-                            for l in root.log : HorizontalLayout {
+                            for l in Lh.log : HorizontalLayout {
                                 padding: 6px;
                                 spacing: 10px;
                                 Text { text: l.time; color: Theme.muted; font-size: Theme.font-small; width: 72px; font-family: "monospace"; vertical-alignment: center; }
@@ -537,4 +534,18 @@ export component AppWindow inherits Window {
             }
         }
     }
+}
+
+export component AppWindow inherits Window {
+    title: "Pharos Lighthouse";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.bg;
+    // Screenshots and tests switch light/dark here (Theme.dark follows Palette.color-scheme).
+    public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
+    /// Follow the system's light/dark setting again.
+    public function set-system-theme() { Palette.color-scheme = ColorScheme.unknown; }
+    LighthouseView { }
 }

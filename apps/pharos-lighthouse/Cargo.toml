@@ -1,5 +1,5 @@
 [package]
-name = "enigma-beacon"
+name = "pharos-lighthouse"
 version = "0.1.0"
 description = "Run and manage a Beacon from a desktop or a Raspberry Pi with a screen (Slint)."
 authors = ["SpectrumAI"]
@@ -10,11 +10,11 @@ publish = false
 build = "build.rs"
 
 [lib]
-name = "enigma_beacon"
+name = "pharos_lighthouse"
 path = "src/lib.rs"
 
 [[bin]]
-name = "enigma-beacon"
+name = "pharos-lighthouse"
 path = "src/main.rs"
 
 [features]
@@ -40,5 +40,11 @@ tempfile = "3"
 png = "0.18"
 
 [[example]]
-name = "beacon-screens"
+name = "lighthouse-screens"
 path = "examples/screens.rs"
+
+[package.metadata.deb]
+name = "pharos-lighthouse"
+section = "net"
+extended-description = "Pharos Lighthouse: run and manage a Beacon (Linux desktop, Raspberry Pi)."
+assets = [["target/release/pharos-lighthouse", "usr/bin/", "755"]]

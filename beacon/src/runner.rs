@@ -1,5 +1,5 @@
 //! Running a Beacon from code: what `beacon serve` does, startable and stoppable
-//! from a library call (the `enigma-beacon` app), reporting its phase, address and
+//! from a library call (the `pharos-lighthouse` app), reporting its phase, address and
 //! relay statistics. `beacon serve` is [`serve_until`] with Ctrl-C.
 
 use std::net::SocketAddr;

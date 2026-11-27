@@ -142,7 +142,7 @@ impl Config {
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         let text = serde_norway::to_string(self)?;
         let tmp = path.with_extension("yaml.tmp");
-        std::fs::write(&tmp, format!("# Beacon config (written by enigma-beacon; `beacon` reads it too)\n{text}"))?;
+        std::fs::write(&tmp, format!("# Beacon config (written by pharos-lighthouse; `beacon` reads it too)\n{text}"))?;
         std::fs::rename(&tmp, path)?;
         Ok(())
     }

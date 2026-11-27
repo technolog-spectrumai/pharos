@@ -47,7 +47,7 @@ enigma-tui`): no real Tor, the client link runs to beacon-node relays in an in-m
 | 3.1 | Device key (Ed25519 in vault `keys/device_ed25519`) | `device.rs` | done | done |
 | 3.2 | Tor indicator | `TorIndicator.vue`, `stores/tor.ts`, `mesh::tor_status` | done (from the real Tor client: off / starting / on / error) | done |
 | 3.3 | Your Beacon card: set / scan / remove `pharos-beacon:` code | `BeaconCard.vue`, `beacon_parse_code` | done (paste, read from a picture, remove) | done (`b`, `:beacon`) |
-| 3.4 | Enable Beacon (in-process Relay, own onion, sealed queue) | new in b2 (Tauri had none) | n/a — client and Beacon are separate apps (b2.md 2026-11-27): the Beacon is `apps/enigma-beacon` / `beacon` | n/a — same |
+| 3.4 | Enable Beacon (in-process Relay, own onion, sealed queue) | new in b2 (Tauri had none) | n/a — client and Beacon are separate apps (b2.md 2026-11-27): the Beacon is `apps/pharos-lighthouse` / `beacon` | n/a — same |
 | 3.5 | Offline mode | `app_get/set_offline`, `stores/network.ts` | done (Tor and the link stop) | done (`:offline`) |
 | 3.6 | Connection timeout setting | `EnigmaConfigView` connectTimeout | done (10–300 s, dial + handshake) | done (`:timeout`) |
 | 3.7 | Per-room onions, realtime mesh (`realtime_*`, `mesh_live.rs`) | `realtime.rs`, `mesh.rs` | n/a (b2: Beacons-only mesh, devices only dial their Beacon) | n/a |
