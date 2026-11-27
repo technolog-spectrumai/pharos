@@ -1,6 +1,6 @@
 [package]
 name = "beacon"
-version = "0.1.0"
+version = "0.2.4"
 edition = "2021"
 rust-version.workspace = true
 description = "Beacon: the optional Pharos helper — an onion-only mailbox and directory, small enough for a Raspberry Pi"

@@ -3,7 +3,8 @@
 //! Served on the onion itself, so it opens in Tor Browser for anyone who has
 //! the address. It shows Beacon code (`pharos-beacon:…`, see
 //! `pharos_id::BeaconCode`) as a QR image and as text, with both to download.
-//! Enigma takes that code under "You and your Beacon".
+//! Enigma takes that code under Settings → Connections → "Your Beacon". `/` is
+//! in Polish when the browser prefers Polish; `/en` and `/pl` pick one.
 //!
 //! Everything is made once, at start, from the onion and the configured name:
 //! no request computes anything, and nothing a visitor sends reaches the page.
@@ -53,7 +54,8 @@ impl Page {
 
 pub fn router(page: Arc<Page>) -> Router {
     Router::new()
-        .route("/", get(en))
+        .route("/", get(auto))
+        .route("/en", get(en))
         .route("/pl", get(pl))
         .route("/beacon-qr.png", get(png))
         .route("/beacon.txt", get(txt))
@@ -74,6 +76,30 @@ fn guarded(content_type: &'static str, body: impl IntoResponse) -> Response {
         body,
     )
         .into_response()
+}
+
+/// `/`: Polish when the browser puts Polish before English, else English.
+async fn auto(axum::extract::State(p): St, headers: axum::http::HeaderMap) -> Response {
+    let al = headers.get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let page = if prefers_polish(al) { p.pl.clone() } else { p.en.clone() };
+    let mut r = guarded("text/html; charset=utf-8", page);
+    r.headers_mut().insert(header::VARY, header::HeaderValue::from_static("Accept-Language"));
+    r
+}
+
+/// Whether Polish comes before English in an Accept-Language list (q-values honoured).
+pub(crate) fn prefers_polish(al: &str) -> bool {
+    let mut best: Option<(&str, f32)> = None;
+    for part in al.split(',') {
+        let mut it = part.trim().split(';');
+        let tag = it.next().unwrap_or("").trim().to_ascii_lowercase();
+        let q = it.find_map(|x| x.trim().strip_prefix("q=").and_then(|v| v.parse::<f32>().ok())).unwrap_or(1.0);
+        let lang = if tag.starts_with("pl") { "pl" } else if tag.starts_with("en") { "en" } else { continue };
+        if best.map_or(true, |(_, bq)| q > bq) {
+            best = Some((lang, q));
+        }
+    }
+    best.is_some_and(|(l, _)| l == "pl")
 }
 
 async fn en(axum::extract::State(p): St) -> Response {
@@ -173,9 +199,9 @@ const EN: Words = Words {
     lead: "This is a Beacon. It keeps sealed messages for people who use Enigma while they are offline, and cannot read them.",
     connect: "Connect Enigma to it",
     steps: [
-        "In Enigma, open <b>Friends</b>, then ⚙ <b>You and your Beacon</b>.",
-        "Scan this QR code with the camera button, or paste the code below.",
-        "Save. Enigma checks that it can reach this Beacon.",
+        "In Enigma, open ☰ <b>Settings</b> → <b>Connections</b> → <b>Your Beacon</b>.",
+        "Tap <b>Scan its code</b> and scan this QR code, or paste the code below and tap <b>Use</b>.",
+        "Rooms you create from then on use this Beacon; their members learn it automatically.",
     ],
     qr_alt: "QR code of this Beacon",
     as_text: "The code as text",
@@ -191,9 +217,9 @@ const PL: Words = Words {
     lead: "To jest Beacon. Przechowuje zaszyfrowane wiadomości dla osób korzystających z Enigmy, gdy są offline, i nie może ich przeczytać.",
     connect: "Połącz z nim Enigmę",
     steps: [
-        "W Enigmie otwórz <b>Znajomi</b>, a potem ⚙ <b>Ty i Twój Beacon</b>.",
-        "Zeskanuj ten kod QR przyciskiem aparatu albo wklej kod poniżej.",
-        "Zapisz. Enigma sprawdzi, czy może połączyć się z tym serwerem Beacon.",
+        "W Enigmie otwórz ☰ <b>Ustawienia</b> → <b>Połączenia</b> → <b>Twój Beacon</b>.",
+        "Dotknij <b>Zeskanuj jego kod</b> i zeskanuj ten kod QR albo wklej kod poniżej i dotknij <b>Użyj</b>.",
+        "Pokoje, które utworzysz od tej chwili, będą używać tego serwera Beacon; ich członkowie poznają go automatycznie.",
     ],
     qr_alt: "Kod QR tego serwera Beacon",
     as_text: "Kod jako tekst",
@@ -201,7 +227,7 @@ const PL: Words = Words {
     get_txt: "Pobierz kod (tekst)",
     address: "Jego adres",
     share: "Podawaj adres i kod tylko osobom, które mają korzystać z tego serwera Beacon.",
-    other: ("/", "English"),
+    other: ("/en", "English"),
 };
 
 fn html(w: &Words, name: &str, onion: &str, code: &str) -> String {
@@ -238,7 +264,7 @@ fn html(w: &Words, name: &str, onion: &str, code: &str) -> String {
 </head>
 <body>
 <main>
-  <header><div class="mark" aria-hidden="true">P</div><div><h1>{name}</h1><div class="kind">Beacon</div></div></header>
+  <header><div class="mark" aria-hidden="true">E</div><div><h1>{name}</h1><div class="kind">Beacon</div></div></header>
   <p>{lead}</p>
   <section>
     <h2>{connect}</h2>
@@ -278,6 +304,15 @@ fn html(w: &Words, name: &str, onion: &str, code: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn picks_polish_only_when_preferred() {
+        use super::prefers_polish as p;
+        assert!(p("pl-PL,pl;q=0.9,en;q=0.8"));
+        assert!(!p("en-US,en;q=0.9,pl;q=0.8"));
+        assert!(p("de,pl;q=0.7"));
+        assert!(!p(""));
+    }
+
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -319,7 +354,7 @@ mod tests {
         assert!(html.contains(&page.code), "the code is on the page");
         assert!(html.contains(&onion()), "and the address");
         assert!(html.contains("Alice&#39;s Pi"), "the name, escaped");
-        assert!(html.contains("You and your Beacon"), "names the place in Enigma");
+        assert!(html.contains("Your Beacon") && html.contains("Connections"), "names the place in Enigma");
 
         let (s, h, txt) = get(&app, "/beacon.txt").await;
         assert_eq!((s, h[header::CONTENT_TYPE].to_str().unwrap()), (StatusCode::OK, "text/plain; charset=utf-8"));
@@ -354,7 +389,7 @@ mod tests {
         let en = String::from_utf8(get(&app, "/").await.2).unwrap();
         let pl = String::from_utf8(get(&app, "/pl").await.2).unwrap();
         assert!(en.contains(r#"<html lang="en">"#) && en.contains(r#"href="/pl""#));
-        assert!(pl.contains(r#"<html lang="pl">"#) && pl.contains("Ty i Twój Beacon") && pl.contains(r#"href="/""#));
+        assert!(pl.contains(r#"<html lang="pl">"#) && pl.contains("Twój Beacon") && pl.contains(r#"href="/en""#));
         assert_eq!(get(&app, "/nothing").await.0, StatusCode::NOT_FOUND);
     }
 
