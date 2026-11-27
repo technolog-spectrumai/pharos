@@ -3021,6 +3021,7 @@ dependencies = [
  "hound",
  "notify-rust",
  "png 0.17.16",
+ "rusqlite",
  "slint",
  "slint-build",
 ]

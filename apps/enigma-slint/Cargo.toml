@@ -33,6 +33,9 @@ notify-rust = "4"
 
 [target.'cfg(target_os = "android")'.dependencies]
 slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-android-activity-06", "renderer-femtovg", "renderer-software"] }
+# arti's directory cache (rusqlite) would link the system libsqlite3, which the NDK lacks:
+# build SQLite from source (as the Tauri app does).
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 [build-dependencies]
 slint-build = "1.19"
