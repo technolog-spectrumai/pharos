@@ -1,5 +1,5 @@
 //! Render the Slint app's screens off-screen (software renderer, 2x) to PNGs in
-//! `docs/screens/slint/`: `cargo run -p enigma-slint --example slint-screens`.
+//! `docs/screens/enigma27/`: `cargo run -p enigma27 --example enigma27-screens`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,8 +8,8 @@ use beacon_node::relay::Directory;
 use enigma_app::real::Net;
 use enigma_app::session::Session;
 use enigma_app::vault::{test_kdf, Profiles};
-use enigma_slint::headless::{self, Shot};
-use enigma_slint::{build, refresh, show_invite, AppWindow, Host, Page};
+use enigma27::headless::{self, Shot};
+use enigma27::{build, refresh, show_invite, AppWindow, Host, Page};
 use slint::ComponentHandle;
 
 fn save(dir: &Path, name: &str, s: &Shot) {
@@ -23,7 +23,7 @@ fn save(dir: &Path, name: &str, s: &Shot) {
 }
 
 fn main() {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screens/slint");
+    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screens/enigma27");
     std::fs::create_dir_all(&out).unwrap();
     for old in ["main-beacon-on", "settings-beacon"] {
         let _ = std::fs::remove_file(out.join(format!("{old}.png")));
@@ -43,7 +43,7 @@ fn main() {
         if img {
             c.send_image_file(&pic);
         }
-        c.send_voice_wav(&enigma_slint::audio::wav_bytes(&[0; 8000], 8000));
+        c.send_voice_wav(&enigma27::audio::wav_bytes(&[0; 8000], 8000));
     }
     let redraw = |ui: &AppWindow| {
         refresh(ui, &mut host.borrow_mut());
@@ -93,10 +93,18 @@ fn main() {
     ui.set_page(Page::Chat);
     ui.set_narrow(true);
     ui.set_show_chat(true);
-    ui.invoke_set_dark(true);
-    save(&out, "phone-chat-dark", &headless::render(&ui, 400, 820, scale));
+    for (dark, tag) in [(false, "light"), (true, "dark")] {
+        ui.invoke_set_dark(dark);
+        ui.set_show_chat(true);
+        save(&out, &format!("phone-chat-{tag}"), &headless::render(&ui, 400, 820, scale));
+        ui.set_show_chat(false);
+        save(&out, &format!("phone-rooms-{tag}"), &headless::render(&ui, 400, 820, scale));
+    }
+    ui.invoke_set_dark(false);
     ui.set_show_chat(false);
-    save(&out, "phone-rooms-dark", &headless::render(&ui, 400, 820, scale));
+    ui.set_page(Page::Settings);
+    save(&out, "phone-settings-light", &headless::render(&ui, 400, 820, scale));
+    ui.set_page(Page::Chat);
     ui.hide().unwrap();
     drop((ui, host));
 

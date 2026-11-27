@@ -1,5 +1,5 @@
 [package]
-name = "enigma-slint"
+name = "enigma27"
 version = "0.1.0"
 description = "Enigma, the main app in Slint (desktop and Android), on enigma-app / enigma-core."
 authors = ["SpectrumAI"]
@@ -10,13 +10,13 @@ publish = false
 build = "build.rs"
 
 [lib]
-name = "enigma_slint"
+name = "enigma27"
 path = "src/lib.rs"
 # rlib for the desktop binary, tests and examples; cdylib for the Android .so (android_main).
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "enigma"
+name = "enigma27"
 path = "src/main.rs"
 
 [dependencies]
@@ -46,8 +46,8 @@ png = "0.17"
 beacon-node = { path = "../../crates/beacon-node" }
 
 [package.metadata.android]
-package = "com.spectrumaipl.enigma27.slint"
-apk_name = "enigma27-slint"
+package = "com.spectrumaipl.enigma27"
+apk_name = "enigma27"
 build_targets = ["aarch64-linux-android"]
 
 [package.metadata.android.sdk]
@@ -61,5 +61,11 @@ name = "android.permission.INTERNET"
 name = "android.permission.CAMERA"
 
 [[example]]
-name = "slint-screens"
+name = "enigma27-screens"
 path = "examples/screens.rs"
+
+[package.metadata.deb]
+name = "enigma27"
+section = "net"
+extended-description = "Enigma27: end-to-end encrypted chat over Tor (the Slint client)."
+assets = [["target/release/enigma27", "usr/bin/", "755"]]

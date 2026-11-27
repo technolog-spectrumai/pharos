@@ -1,17 +1,17 @@
-# enigma-slint
+# enigma27 (Enigma27, the client)
 
 Enigma's main app in [Slint](https://slint.dev) 1.x, for desktop and Android (stage 5 of
-`b2.md`). Binary: `enigma`. It is a **client**: it attaches to *Your Beacon* (a Raspberry
+`b2.md`). Binary: `enigma27`. It is a **client**: it attaches to *Your Beacon* (a Raspberry
 Pi or Linux PC running `apps/enigma-beacon` or the `beacon` binary) over Tor and never
 runs a Beacon itself (b2.md: client and Beacon are separate apps). Parity with the Tauri
 app: `PARITY.md`.
 
 ```sh
-cargo run -p enigma-slint                      # the real app: lock screen, then Your Beacon over Tor
-cargo run -p enigma-slint -- --data /tmp/e27   # profiles somewhere else (default: the Tauri data dir)
-cargo run -p enigma-slint -- enigma://room/Harbour   # open a deep link once unlocked
-cargo run -p enigma-slint -- --demo            # in-memory world with a simulated Ann
-cargo run -p enigma-slint -- --demo --lang pl  # Polish (default: from $LANG)
+cargo run -p enigma27                      # the real app: lock screen, then Your Beacon over Tor
+cargo run -p enigma27 -- --data /tmp/e27   # profiles somewhere else (default: the Tauri data dir)
+cargo run -p enigma27 -- enigma://room/Harbour   # open a deep link once unlocked
+cargo run -p enigma27 -- --demo            # in-memory world with a simulated Ann
+cargo run -p enigma27 -- --demo --lang pl  # Polish (default: from $LANG)
 ```
 
 ## First run
@@ -49,9 +49,9 @@ vault (panic code wipes every profile), `media` (pictures, QR from images), `fil
 ## Tests and screenshots
 
 ```sh
-cargo test -p enigma-slint                          # drives the window headless (demo + a real profile)
+cargo test -p enigma27                          # drives the window headless (demo + a real profile)
 cargo test -p enigma-app                            # incl. tests/real.rs: apps on in-memory Beacons
-cargo run -p enigma-slint --example slint-screens   # PNGs at 2x into docs/screens/slint/
+cargo run -p enigma27 --example enigma27-screens   # PNGs at 2x into docs/screens/enigma27/
 ```
 
 No test uses real Tor: the real backend takes `Net::Test(dialer)` in tests, with
@@ -88,14 +88,14 @@ frames into rqrr. Neither is wired yet.
 
 ## Android
 
-The crate is also a `cdylib` (`libenigma_slint.so`) with `android_main`, on Slint's
+The crate is also a `cdylib` (`libenigma27.so`) with `android_main`, on Slint's
 `backend-android-activity-06`; the phone runs the real client (profiles in the app's
 internal storage). Package an APK with cargo-apk (metadata in `Cargo.toml`):
 
 ```sh
 cargo install cargo-apk
 rustup target add aarch64-linux-android
-cd apps/enigma-slint
+cd apps/enigma27
 ANDROID_HOME=$HOME/Android/Sdk ANDROID_NDK_ROOT=$HOME/Android/Sdk/ndk/27.2.12479018 cargo apk build --lib
 ```
 
@@ -107,16 +107,16 @@ works too.
 Nothing here is Linux-only except the Beacon (which the client does not include): cpal
 uses WASAPI, notify-rust uses WinRT toasts, arti and Slint build on Windows. A Windows
 build was not run in this environment (no `x86_64-pc-windows-*` target installed);
-check with `cargo build -p enigma-slint --target x86_64-pc-windows-msvc` on Windows or
+check with `cargo build -p enigma27 --target x86_64-pc-windows-msvc` on Windows or
 `cargo xwin build` from Linux.
 
 ## Packaging / CI
 
-- Desktop: `cargo build -p enigma-slint --release` gives one binary `enigma` (the Tauri
-  app's binary has the same name; build them separately until it is retired). Linux
+- Desktop: `cargo build -p enigma27 --release` gives one binary `enigma27` (it no longer
+  clashes with the Tauri app's `enigma`). Linux
   packages: a `.desktop` file (with the `enigma` URL scheme above) and an icon; system
   needs: ALSA (cpal) and a notification daemon (D-Bus) at run time.
-- CI: `cargo test -p enigma-app -p enigma-slint -p enigma-tui` runs headless (software
+- CI: `cargo test -p enigma-app -p enigma27 -p enigma-tui` runs headless (software
   renderer, in-memory Beacons; no display, no Tor, no audio device needed);
-  `cargo run -p enigma-slint --example slint-screens` refreshes `docs/screens/slint/`;
+  `cargo run -p enigma27 --example enigma27-screens` refreshes `docs/screens/enigma27/`;
   the Android job runs `cargo apk build --lib` with the SDK/NDK above.

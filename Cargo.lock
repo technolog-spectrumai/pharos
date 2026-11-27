@@ -3011,7 +3011,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "enigma-slint"
+name = "enigma-tui"
+version = "0.1.0"
+dependencies = [
+ "beacon-node",
+ "crossterm",
+ "enigma-app",
+ "enigma-core",
+ "ratatui",
+]
+
+[[package]]
+name = "enigma27"
 version = "0.1.0"
 dependencies = [
  "beacon-node",
@@ -3024,17 +3035,6 @@ dependencies = [
  "rusqlite",
  "slint",
  "slint-build",
-]
-
-[[package]]
-name = "enigma-tui"
-version = "0.1.0"
-dependencies = [
- "beacon-node",
- "crossterm",
- "enigma-app",
- "enigma-core",
- "ratatui",
 ]
 
 [[package]]

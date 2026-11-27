@@ -10,7 +10,7 @@ Status: **done** = works in the Slint app for real (not only `--demo`);
 "TUI" says whether `enigma-tui` has it too (it may skip media). TUI features beyond the
 main screen are `:` commands (`:help` lists them).
 
-Tests named in a row run headless (`cargo test -p enigma-app -p enigma-slint -p
+Tests named in a row run headless (`cargo test -p enigma-app -p enigma27 -p
 enigma-tui`): no real Tor, the client link runs to beacon-node relays in an in-memory
 `Directory` (tests only; the app itself only dials Your Beacon over Tor).
 

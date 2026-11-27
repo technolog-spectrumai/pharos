@@ -53,7 +53,11 @@ apps/enigma/run_dev.sh --dual # two profiles (alice, bob) side by side
 ./build.sh beacon pi           # Beacon for a Raspberry Pi (aarch64); `all` for both
 ./build.sh all                # Enigma27, then Beacon
 cargo run -p beacon -- serve -c beacon/packaging/config.yaml --tcp 127.0.0.1:8080   # Beacon on loopback
-cargo run -p enigma-slint -- --demo   # the new Slint app (stage 5), simulated peer Ann
+cargo run -p enigma27 -- --demo          # Enigma27, the Slint client (simulated peer Ann)
+cargo run -p pharos-lighthouse -- --demo # Pharos Lighthouse, the Beacon app (Linux)
+cargo run -p enigma27-combo -- --demo    # both in one window (Linux)
+cargo build --release -p enigma27 -p pharos-lighthouse -p enigma27-combo
+./build.sh enigma27 | lighthouse | combo # the same, release, plus a .deb (dist/<app>/)
 cargo run -p enigma-tui -- --demo     # the console app
 ```
 

@@ -1,7 +1,7 @@
 [package]
 name = "enigma-app"
 version = "0.1.0"
-description = "Enigma's UI-agnostic app layer: state, actions, backend trait (demo + real: vault, client link over Tor to the user's Beacon), codes, avatars, texts. Shared by enigma-slint and enigma-tui."
+description = "Enigma's UI-agnostic app layer: state, actions, backend trait (demo + real: vault, client link over Tor to the user's Beacon), codes, avatars, texts. Shared by enigma27 and enigma-tui."
 authors = ["SpectrumAI"]
 edition = "2021"
 rust-version.workspace = true

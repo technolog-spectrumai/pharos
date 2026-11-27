@@ -1,4 +1,4 @@
-//! `enigma [--demo] [--name NAME] [--lang pl] [--data DIR] [enigma://…]`
+//! `enigma27 [--demo] [--name NAME] [--lang pl] [--data DIR] [enigma://…]`
 //!
 //! Without `--demo`: the real app. Its lock screen opens the profile vault (the same
 //! data dir as the earlier Tauri app, so an existing profile opens with its passphrase),
@@ -6,7 +6,7 @@
 //! (simulated Ann). An `enigma://room/…` argument is opened once unlocked (deep link).
 
 use enigma_app::i18n::Lang;
-use enigma_slint::Host;
+use enigma27::Host;
 
 fn main() -> Result<(), slint::PlatformError> {
     let args: Vec<String> = std::env::args().collect();
@@ -21,11 +21,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let mut host = if demo {
         Host::demo(&name)
     } else {
-        let base = after("--data").map_or_else(enigma_slint::data_dir, std::path::PathBuf::from);
-        match enigma_slint::real_host(&base) {
+        let base = after("--data").map_or_else(enigma27::data_dir, std::path::PathBuf::from);
+        match enigma27::real_host(&base) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("enigma: {e}");
+                eprintln!("enigma27: {e}");
                 std::process::exit(2);
             }
         }
@@ -34,5 +34,5 @@ fn main() -> Result<(), slint::PlatformError> {
     if let Some(c) = host.core_mut() {
         c.lang = lang;
     }
-    enigma_slint::run(host, link)
+    enigma27::run(host, link)
 }

@@ -1,4 +1,4 @@
-//! `enigma-slint`: Enigma's main app in Slint, for desktop and Android (stage 5 of b2.md).
+//! `enigma27`: Enigma's main app in Slint, for desktop and Android (stage 5 of b2.md).
 //!
 //! The UI is in `ui/*.slint`; this file is the glue: it owns a [`Host`] (the lock
 //! [`Session`] around an [`enigma_app::core::Core`] on the real backend, or a demo `Core`),

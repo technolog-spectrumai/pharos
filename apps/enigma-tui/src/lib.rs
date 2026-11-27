@@ -13,5 +13,5 @@ pub mod gate;
 pub mod screens;
 pub mod ui;
 
-/// The backend and the codes live in `enigma-app` (shared with `enigma-slint`).
+/// The backend and the codes live in `enigma-app` (shared with `enigma27`).
 pub use enigma_app::{backend, codes};

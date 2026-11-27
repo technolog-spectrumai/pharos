@@ -12,7 +12,7 @@
 //! - [`avatar`]: letter avatars (same palette as `avatarIcon.ts`);
 //! - [`i18n`]: English and Polish texts.
 //!
-//! The front ends (`apps/enigma-slint`, `apps/enigma-tui`) only map input to these actions
+//! The front ends (`apps/enigma27`, `apps/enigma-tui`) only map input to these actions
 //! and state to pixels or cells.
 
 pub mod actions;

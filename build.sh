@@ -6,6 +6,9 @@
 #   ./build.sh beacon               Beacon, the server, for this machine: binary + .deb
 #   ./build.sh beacon pi            Beacon for a Raspberry Pi (aarch64, cross-built)
 #   ./build.sh all                 Enigma, then Beacon for this machine
+#   ./build.sh enigma27            the Slint client: release binary + .deb (dist/enigma27/)
+#   ./build.sh lighthouse          Pharos Lighthouse, the Beacon app (Linux): binary + .deb
+#   ./build.sh combo               Enigma27 Combo (client + Lighthouse, Linux): binary + .deb
 #
 #   ./build.sh enigma --dry-run    print the commands it resolves to, run none
 #   ./build.sh enigma --validate   check the file against the checkout, build nothing
@@ -30,7 +33,7 @@ set -euo pipefail
 
 case "${1:-}" in
   --check) exec "$(dirname "${BASH_SOURCE[0]}")/install.sh" --check ;;
-  -h|--help) sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
 # `./build.sh *` means all. Quoted, the * arrives as itself; unquoted, the
@@ -59,6 +62,10 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# The Slint apps are plain cargo builds: their own script.
+case "${1:-}" in
+  enigma27|lighthouse|combo) exec "$REPO_ROOT/scripts/build_slint.sh" "$@" ;;
+esac
 # Beacon is a server, not a Dromon app: its own script.
 if [ "${1:-}" = "beacon" ]; then
   shift

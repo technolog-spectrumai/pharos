@@ -26,6 +26,17 @@ for who learns what, [SECURITY.md](SECURITY.md); for the wire formats,
 | CI | GitHub Actions: `ci.yml` (tests), `release.yml` (Linux, Windows, Android, Beacon arm64 on a `v*` tag), `real-tor.yml` (end to end over the real Tor network, by hand) |
 | Licence | AGPL-3.0 |
 
+## The Slint apps (b2)
+
+Three apps on the same crates (`enigma-app`, `enigma-core`, `enigma-client`,
+`beacon-node`, `beacon`); Slint 1.19 UI, the Tauri app (`apps/enigma`) until parity.
+
+| App | Path / binary | What | Platforms |
+|---|---|---|---|
+| **Enigma27** | `apps/enigma27`, `enigma27` (Android `com.spectrumaipl.enigma27`) | the client: chats, friends, settings; attaches to Your Lighthouse over Tor | Ubuntu (Linux desktop), Android |
+| **Pharos Lighthouse** | `apps/pharos-lighthouse`, `pharos-lighthouse` | the Beacon app: run and manage a Beacon (overview, clients, rooms, settings, log) | Linux desktop, Raspberry Pi |
+| **Enigma27 Combo** | `apps/enigma27-combo`, `enigma27-combo` | both in one window: the client attached in-process to its own Lighthouse | Linux desktop |
+
 ## The client: Enigma27
 
 **Shell.** Tauri 2 gives a small native binary with the system WebView (WebKitGTK

@@ -9,11 +9,11 @@ use enigma_app::i18n::Lang;
 use enigma_app::real::Net;
 use enigma_app::session::Session;
 use enigma_app::vault::{test_kdf, Profiles};
-use enigma_slint::{build, headless, qr_image, texts, Host, Page};
+use enigma27::{build, headless, qr_image, texts, Host, Page};
 use slint::Model;
 
 fn tmp(tag: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("enigma-slint-ui-{tag}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("enigma27-ui-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -33,7 +33,7 @@ fn the_window_drives_the_core_end_to_end() {
     ui.set_draft("hello from slint".into());
     ui.invoke_send("hello from slint".into());
     assert_eq!(ui.get_draft(), "");
-    enigma_slint::tick(&ui, &host);
+    enigma27::tick(&ui, &host);
     let msgs = ui.get_messages();
     assert!(msgs.iter().any(|m| m.mine && m.text == "hello from slint"));
     assert!(msgs.iter().any(|m| !m.mine && m.author == "Ann" && m.text.contains("hello from slint")));
@@ -142,7 +142,7 @@ fn qr_png(text: &str, p: &std::path::Path) {
 #[test]
 fn glue_helpers() {
     assert_eq!(texts(Lang::Pl).new_chat, "Nowy czat");
-    assert_eq!(enigma_slint::hhmm(3_600_000 * 25 + 60_000 * 7), "01:07");
+    assert_eq!(enigma27::hhmm(3_600_000 * 25 + 60_000 * 7), "01:07");
     assert_eq!(qr_image("x", 2).size().width % 2, 0);
 }
 
@@ -222,10 +222,10 @@ fn narrow_windows_get_the_phone_layout() {
     headless::init();
     let (ui, host) = build(Host::demo("Me")).unwrap();
     let _ = headless::render(&ui, 420, 800, 1.0);
-    enigma_slint::tick(&ui, &host);
+    enigma27::tick(&ui, &host);
     assert!(ui.get_narrow());
     let _ = headless::render(&ui, 1100, 700, 1.0);
-    enigma_slint::tick(&ui, &host);
+    enigma27::tick(&ui, &host);
     assert!(!ui.get_narrow());
 }
 
@@ -235,7 +235,7 @@ fn text_fields_follow_dark_mode() {
     headless::init();
     let (ui, _host) = build(Host::demo("Me")).unwrap();
     // the composer field sits in the bottom bar; sample its middle, left of the send button
-    let px = |ui: &enigma_slint::AppWindow| {
+    let px = |ui: &enigma27::AppWindow| {
         let s = headless::render(ui, 800, 600, 1.0);
         let i = ((600 - 30) * 800 + 600) * 3;
         let p = &s.rgb[i..i + 3];
@@ -253,7 +253,7 @@ fn text_fields_follow_dark_mode() {
 fn deep_links_open_the_room_with_a_draft() {
     headless::init();
     let (ui, host) = build(Host::demo("Me")).unwrap();
-    enigma_slint::open_link(&ui, &host, "enigma://room/Harbour/news?to=Ann&quote=hi");
+    enigma27::open_link(&ui, &host, "enigma://room/Harbour/news?to=Ann&quote=hi");
     assert_eq!(ui.get_room_name(), "Harbour");
     assert_eq!(ui.get_draft(), "#news @Ann hi");
 }
