@@ -16,7 +16,7 @@ const props = defineProps<{
 // live here.
 const emit = defineEmits<{ "update:open": [boolean]; "open-camera": [] }>();
 
-const { ticket, scanError, joinStarted, joinError, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin, invitePeek } =
+const { ticket, scanError, joinStarted, joinError, joinWaiting, autoCloseSecs, joinRoom, cancelJoin, scanFile, resetJoin, invitePeek } =
   props.controller;
 // Live status from the channel — "established" = MLS Encrypted.
 const { isEncrypted, mlsStatus } = props.channel;
@@ -78,6 +78,8 @@ function close() {
           {{
             joinError
               ? $t(joinError)
+              : joinWaiting
+                ? $t("invite.waitingAtBeacon")
               : isEncrypted
                 ? $t("chat.connectedOk")
                 : mlsStatus === "key_exchange"

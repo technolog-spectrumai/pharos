@@ -56,7 +56,8 @@ use serde::{Deserialize, Serialize};
 pub const INVITE_TAG: u8 = 0x4E; // 'N'
 
 /// Outer format version. Readable without any key (see the module note).
-pub const FORMAT_V: u8 = 0x01;
+/// 2: the body names the room's Beacon (8.C4), where a redemption can wait.
+pub const FORMAT_V: u8 = 0x02;
 
 const KIND_PERSONAL: u8 = 0x50; // 'P'
 const KIND_GENERAL: u8 = 0x47; // 'G'
@@ -114,6 +115,10 @@ pub struct InviteBody {
     /// Unix ms. Display only — see the module note on advisory deadlines.
     pub issued_at: u64,
     pub expires_at: u64,
+    /// The room's Beacon onion, if it has one: when the inviter's phone is
+    /// offline, the redemption is left there, sealed with the capability, and
+    /// answered when the phone comes back (8.C4).
+    pub beacon: Option<String>,
 }
 
 fn aad(kind: InviteKind) -> [u8; 3] {
@@ -251,6 +256,7 @@ mod tests {
             onion: "abcdefghij.onion".to_string(),
             issued_at: 1_700_000_000_000,
             expires_at: 1_700_003_600_000,
+            beacon: None,
         }
     }
 

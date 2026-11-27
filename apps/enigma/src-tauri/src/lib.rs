@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 mod beacon;
+mod invite_drop;
 mod deeplink;
 // This device's Ed25519 key: the id invitations are sealed to and redeemed by.
 mod device;
@@ -1107,6 +1108,8 @@ pub fn run() {
             // idle watcher can't (killed / frozen / backgrounded). Parks itself
             // while locked, so one task for the app's whole life is enough.
             tauri::async_runtime::spawn(vault::lock_watchdog(app.handle().clone()));
+            // Answers invitations redeemed through Beacon while we were away (8.C4).
+            tauri::async_runtime::spawn(invite_drop::watch(app.handle().clone()));
             deeplink::setup(app);
 
             #[cfg(target_os = "linux")]

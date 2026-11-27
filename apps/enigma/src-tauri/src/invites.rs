@@ -133,6 +133,9 @@ pub struct InviteRecord {
     pub created_at: u64,
     pub expires_at: u64,
     pub state: InviteState,
+    /// The Beacon named in the ticket, where redemptions may wait (8.C4).
+    #[serde(default)]
+    pub beacon: Option<String>,
 }
 
 /// Why a redemption was refused. Deliberately specific: these all go to the
@@ -436,6 +439,7 @@ mod tests {
             created_at: T0,
             expires_at: T0 + 3_600_000,
             state: InviteState::Active,
+            beacon: None,
         }
     }
 

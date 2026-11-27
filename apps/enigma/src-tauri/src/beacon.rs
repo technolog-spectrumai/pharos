@@ -65,45 +65,47 @@ async fn call(state: &MeshState, method: &str, onion: &str, path: &str, token: &
     tokio::time::timeout(TIMEOUT, work).await.map_err(|_| anyhow!("Beacon did not answer in time"))?
 }
 
+/// Leave one frame in a mailbox (also used by invitations, 8.C4).
+pub(crate) async fn post(state: &MeshState, onion: &str, id: &str, token: &str, body: &str) -> Result<()> {
+    check_hex(id)?;
+    check_hex(token)?;
+    let (status, _) = call(state, "PUT", onion, &format!("/v1/mailbox/{id}"), token, body.as_bytes()).await?;
+    if status != 201 {
+        bail!("Beacon refused the post ({status})");
+    }
+    Ok(())
+}
+
+/// What a mailbox holds after `after` (one page).
+pub(crate) async fn fetch(state: &MeshState, onion: &str, id: &str, token: &str, after: i64) -> Result<Vec<Posted>> {
+    check_hex(id)?;
+    check_hex(token)?;
+    let (status, body) = call(state, "GET", onion, &format!("/v1/mailbox/{id}?after={after}"), token, b"").await?;
+    if status == 404 {
+        return Ok(Vec::new()); // nothing posted yet
+    }
+    if status != 200 {
+        bail!("Beacon refused the fetch ({status})");
+    }
+    parse_messages(&body)
+}
+
 /// Leave one frame in the mailbox.
 #[tauri::command]
 pub async fn beacon_post(state: State<'_, MeshState>, onion: String, id: String, token: String, body: String) -> Result<(), String> {
-    (async {
-        check_hex(&id)?;
-        check_hex(&token)?;
-        let (status, _) = call(&state, "PUT", &onion, &format!("/v1/mailbox/{id}"), &token, body.as_bytes()).await?;
-        if status != 201 {
-            bail!("Beacon refused the post ({status})");
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e: anyhow::Error| e.to_string())
+    post(&state, &onion, &id, &token, &body).await.map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
 pub struct Posted {
-    seq: i64,
-    body: String,
+    pub(crate) seq: i64,
+    pub(crate) body: String,
 }
 
 /// Frames in the mailbox after `after` (one page of at most 100).
 #[tauri::command]
 pub async fn beacon_fetch(state: State<'_, MeshState>, onion: String, id: String, token: String, after: i64) -> Result<Vec<Posted>, String> {
-    (async {
-        check_hex(&id)?;
-        check_hex(&token)?;
-        let (status, body) = call(&state, "GET", &onion, &format!("/v1/mailbox/{id}?after={after}"), &token, b"").await?;
-        if status == 404 {
-            return Ok(Vec::new()); // nothing posted yet
-        }
-        if status != 200 {
-            bail!("Beacon refused the fetch ({status})");
-        }
-        parse_messages(&body)
-    })
-    .await
-    .map_err(|e: anyhow::Error| e.to_string())
+    fetch(&state, &onion, &id, &token, after).await.map_err(|e| e.to_string())
 }
 
 pub(crate) fn parse_messages(body: &[u8]) -> Result<Vec<Posted>> {

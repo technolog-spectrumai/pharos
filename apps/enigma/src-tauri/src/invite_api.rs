@@ -108,8 +108,9 @@ pub async fn invite_create(
     kind: String,
     recipient: Option<String>,
     ttl_secs: u64,
+    beacon: Option<String>,
 ) -> Result<InviteCreated, String> {
-    mint(&app, &mesh, room_slug, room_name, &kind, recipient, ttl_secs).await
+    mint(&app, &mesh, room_slug, room_name, &kind, recipient, ttl_secs, beacon).await
 }
 
 /// The minting core.
@@ -122,7 +123,9 @@ pub async fn mint(
     kind: &str,
     recipient: Option<String>,
     ttl_secs: u64,
+    beacon: Option<String>,
 ) -> Result<InviteCreated, String> {
+    let beacon = beacon.filter(|b| crate::invite_drop::is_onion(b));
     let kind = match kind {
         "personal" => InviteKind::Personal,
         "general" => InviteKind::General,
@@ -155,6 +158,7 @@ pub async fn mint(
         onion,
         issued_at: now,
         expires_at,
+        beacon: beacon.clone(),
     };
 
     let ticket = match kind {
@@ -185,6 +189,7 @@ pub async fn mint(
             created_at: now,
             expires_at,
             state: InviteState::Active,
+            beacon,
         },
     )?;
 
@@ -277,14 +282,25 @@ pub async fn invite_redeem(
     let decoded = invite_ticket::decode(&ticket, Some(&seed)).map_err(|e| e.to_string())?;
     let body = decoded.body;
 
-    let (mut rd, mut wr) = crate::mesh::dial_kind(&app, &mesh, &body.onion, "redeem")
-        .await
-        .map_err(|e| format!("INVITE_UNREACHABLE: {e}"))?;
     let window = std::time::Duration::from_secs(2 * crate::net_settings::connect_timeout_secs(&app));
-    let exchange = invite_redeem::redeem_over_tor(&app, &mut wr, &mut rd, &body.invite_id, &body.capability, key_package, name);
-    match tokio::time::timeout(window, exchange).await {
-        Ok(r) => r.map_err(|e| e.to_string()),
-        Err(_) => Err("INVITE_UNREACHABLE: the inviter did not answer in time".to_string()),
+    let live = async {
+        let (mut rd, mut wr) = crate::mesh::dial_kind(&app, &mesh, &body.onion, "redeem")
+            .await
+            .map_err(|e| format!("INVITE_UNREACHABLE: {e}"))?;
+        let exchange = invite_redeem::redeem_over_tor(&app, &mut wr, &mut rd, &body.invite_id, &body.capability, key_package.clone(), name.clone());
+        match tokio::time::timeout(window, exchange).await {
+            Ok(r) => r.map_err(|e| e.to_string()),
+            Err(_) => Err("INVITE_UNREACHABLE: the inviter did not answer in time".to_string()),
+        }
+    };
+    match live.await {
+        // The inviter's phone is offline: leave the request at the room's Beacon
+        // and wait there for the answer (8.C4).
+        Err(e) if e.starts_with("INVITE_UNREACHABLE") => match body.beacon.as_deref() {
+            Some(beacon) => crate::invite_drop::redeem_via_beacon(&app, &mesh, beacon, &body, key_package, name).await,
+            None => Err(e),
+        },
+        other => other,
     }
 }
 
@@ -328,6 +344,7 @@ mod tests {
             created_at: 1,
             expires_at: 2,
             state: InviteState::Active,
+            beacon: None,
         };
         let json = serde_json::to_string(&summarise(&rec, 0)).unwrap();
         assert!(!json.contains("5a5a"), "capability leaked into a summary");
@@ -347,6 +364,7 @@ mod tests {
             created_at: 0,
             expires_at: 1_000,
             state: InviteState::Active,
+            beacon: None,
         };
         assert_eq!(summarise(&rec, 999).state, "active");
         assert_eq!(summarise(&rec, 1_000).state, "expired");
@@ -367,6 +385,7 @@ mod tests {
             created_at: 0,
             expires_at: 1,
             state: InviteState::Active,
+            beacon: None,
         };
         assert!(summarise(&rec, 0).recipient.is_none());
     }

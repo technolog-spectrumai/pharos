@@ -365,6 +365,7 @@ export default {
 
   // ── Invitations (technology.md §18) ─────────────────────────────────────────
   invite: {
+    waitingAtBeacon: "Their phone is offline. Your request is waiting at their Beacon; keep Enigma open and you'll join as soon as their phone is back (up to 30 minutes).",
     goPair: "Open Friends",
     noFriends: "No friends yet. Pair with someone in Friends first: then you can invite them with one tap.",
     pickFriend: "Pick a friend",

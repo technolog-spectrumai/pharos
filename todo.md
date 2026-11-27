@@ -76,7 +76,7 @@ The gap is kept small: Beacon only ever handles sealed, padded, steady traffic i
 - [x] 8.C1 The room's Beacon address stored with the room (`P2pRoomEntry.beacon`) and shared inside the encrypted presence message; the first one heard is kept
 - [x] 8.C2 New rooms use your Beacon if one is set (Settings → Connections → `BeaconCard`, scan or paste its code; shows this phone's key for restricted mode); none → pure mesh
 - [x] 8.C3 Phones use both routes: every frame goes over the mesh and to Beacon, work on if Beacon is down; room header says "Via Beacon" / "Direct" / "Beacon unreachable"
-- [ ] 8.C4 Invitations name Beacon's onion; a redemption waits there, sealed to the inviter, until the inviter's phone admits it
+- [x] 8.C4 Invitations name the room's Beacon (ticket format 2); if the inviter is offline the redemption is left there sealed with the capability (`invite_drop.rs`), the inviter's phone answers it when back (polls open invitations ~every 45–65 s), the newcomer waits up to 30 min ("waiting at their Beacon"). Old 0.2.3 tickets are refused as another version
 - [ ] 8.D1 Constant-rate padded frames to Beacon while a room is open (= 7.4), longer interval on mobile/battery
 - [ ] 8.D2 Poisson-timed fetches and dummy fetches
 - [ ] 8.D3 Small random release delays on Beacon

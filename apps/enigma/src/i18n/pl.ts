@@ -362,6 +362,7 @@ export default {
 
   // ── Zaproszenia (technology.md §18) ─────────────────────────────────────────
   invite: {
+    waitingAtBeacon: "Telefon zapraszającego jest offline. Twoja prośba czeka na jego Beaconie; nie zamykaj Enigmy, a dołączysz, gdy tylko jego telefon wróci (do 30 minut).",
     goPair: "Otwórz Znajomych",
     noFriends: "Nie masz jeszcze znajomych. Najpierw sparuj się z kimś w Znajomych: potem zaprosisz go jednym dotknięciem.",
     pickFriend: "Wybierz znajomego",

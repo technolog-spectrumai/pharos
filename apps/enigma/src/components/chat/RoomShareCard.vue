@@ -40,6 +40,7 @@ import { invoke, isTauri } from "rakotis";
 import { OyaCopyField, OyaQrCode } from "petalite/primitives";
 import LetterAvatar from "../LetterAvatar.vue";
 import { friends, loadFriends } from "../../stores/friends";
+import { useChatStore } from "../../stores/chat";
 
 const props = defineProps<{
   roomSlug: string;
@@ -47,6 +48,10 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n({ useScope: "global" });
+// The room's Beacon, if any: the invitation names it, so a redemption can wait
+// there while this phone is offline (8.C4).
+const chatStore = useChatStore();
+const roomBeacon = () => chatStore.p2p.p2pRooms.value.find((r) => r.room === props.roomSlug)?.beacon ?? null;
 
 type ShareMode = "personal" | "general";
 // Private first: it is the narrower credential, and the one to reach for.
@@ -122,6 +127,7 @@ async function createInvite() {
       kind,
       recipient: kind === "personal" ? chosenRecipient.value : null,
       ttlSecs: effectiveTtl.value,
+      beacon: roomBeacon(),
     });
     minted.value = res;
     await refreshRows();

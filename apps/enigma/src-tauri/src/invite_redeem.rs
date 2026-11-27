@@ -60,7 +60,7 @@ use tokio::sync::{oneshot, Mutex};
 use crate::invite_ticket::INVITE_ID_LEN;
 use crate::invites::{self, RedeemError};
 
-const REDEEM_VERSION: u8 = 1;
+pub(crate) const REDEEM_VERSION: u8 = 1;
 const CHALLENGE_LEN: usize = 32;
 
 // ── wire frames (length-prefixed JSON, the mesh's framing) ───────────────────
@@ -73,39 +73,39 @@ struct ChallengeFrame {
 }
 
 #[derive(Serialize, Deserialize)]
-struct RequestFrame {
-    v: u8,
+pub(crate) struct RequestFrame {
+    pub(crate) v: u8,
     /// Hex of the ticket's invite_id.
-    invite_id: String,
+    pub(crate) invite_id: String,
     /// The redeemer's device id, proven by `sig`.
-    node_id: String,
+    pub(crate) node_id: String,
     /// Hex Ed25519 signature over the raw challenge bytes.
-    sig: String,
+    pub(crate) sig: String,
     /// Hex MAC proving possession of the capability.
-    proof: String,
+    pub(crate) proof: String,
     /// Base64 MLS KeyPackage.
-    key_package: String,
+    pub(crate) key_package: String,
     /// Display name for the room roster. Self-asserted, like every other
     /// `sender_name` in this app (technology.md §9.5).
-    name: String,
+    pub(crate) name: String,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ReplyFrame {
-    v: u8,
-    ok: bool,
+pub(crate) struct ReplyFrame {
+    pub(crate) v: u8,
+    pub(crate) ok: bool,
     /// One of the `INVITE_*` codes from `invites::RedeemError` when `!ok`.
-    code: String,
+    pub(crate) code: String,
     /// Base64 MLS Welcome.
-    welcome: String,
+    pub(crate) welcome: String,
     /// The room to join. Handed over ONLY here, never in the QR.
-    room_name: String,
+    pub(crate) room_name: String,
     /// The members' onions for the room, the inviter's included.
-    peers: Vec<String>,
+    pub(crate) peers: Vec<String>,
 }
 
 impl ReplyFrame {
-    fn refused(code: &str) -> Self {
+    pub(crate) fn refused(code: &str) -> Self {
         Self {
             v: REDEEM_VERSION,
             ok: false,
@@ -147,11 +147,11 @@ pub struct RedeemGrant {
 #[derive(Default, Clone)]
 pub struct RedeemState(pub Arc<Mutex<HashMap<String, oneshot::Sender<AdmitAnswer>>>>);
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn unhex(s: &str) -> Option<Vec<u8>> {
     if s.len() % 2 != 0 {
         return None;
     }
@@ -212,7 +212,7 @@ where
 
 /// Every check, in the order that gives the most useful refusal, then the lease,
 /// then the admission.
-async fn decide(
+pub(crate) async fn decide(
     app: &AppHandle,
     pending: &RedeemState,
     challenge: &[u8; CHALLENGE_LEN],

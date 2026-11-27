@@ -120,6 +120,8 @@ export function useP2pRooms(channel: ChatChannel) {
   const joinError = ref("");
   const joinCancelling = ref(false); // Cancel pressed → abort in progress, swallow error
   const joinTimedOut = ref(false); // connect timed out → keep the timeout error, swallow the abort
+  /** The inviter's phone is offline and our request waits at the room's Beacon (8.C4). */
+  const joinWaiting = ref(false);
 
   // Connect-timeout timer: armed when a join begins, cleared once it connects
   // (joinByTicket resolves), the user cancels, or the modal resets.
@@ -178,6 +180,17 @@ export function useP2pRooms(channel: ChatChannel) {
     joinCancelling.value = false;
     joinTimedOut.value = false;
     invitePeek.value = null;
+    joinWaiting.value = false;
+    // Rust says when the request went to Beacon instead: from then on the wait is
+    // for the inviter's phone to come online, so the connect window no longer applies.
+    let unlisten: (() => void) | null = null;
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen("invite://waiting", () => {
+        joinWaiting.value = true;
+        clearConnectTimer();
+      });
+    } catch { /* not in Tauri (tests) */ }
     // The same N-second connect window a ticket join used to get, so the modal's
     // 2×N lifetime (N to connect, N to read the outcome) is unchanged. Rust bounds
     // the rendezvous separately at 2×N; this is the window the USER sees, and it
@@ -185,8 +198,9 @@ export function useP2pRooms(channel: ChatChannel) {
     armConnectTimer(1000 * (await getConnectTimeoutSecs()));
     const out = await redeemInvitation(channel, code, (p) => {
       invitePeek.value = p;
-    });
+    }).finally(() => unlisten?.());
     clearConnectTimer();
+    joinWaiting.value = false;
     if (out.ok) {
       // Success wins, even after a timeout was already shown: the redemption
       // completed, so we ARE in the room, and leaving "timed out" on screen would
@@ -326,6 +340,7 @@ export function useP2pRooms(channel: ChatChannel) {
     joinOpen,
     joinStarted,
     joinError,
+    joinWaiting,
     joinCancelling,
     autoCloseSecs,
     openJoin,
