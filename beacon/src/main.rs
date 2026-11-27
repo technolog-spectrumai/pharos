@@ -11,10 +11,13 @@
 //!   beacon deny   [-c config.yaml] NAME      take a phone off the list
 //!   beacon clients [-c config.yaml]          the phones on the list
 
-use beacon::{api, clients, config, diskcrypt, masterkey, page, store};
+use beacon::{api, clients, config, diskcrypt, masterkey, page, relay_store, store};
 
 use anyhow::{bail, Context, Result};
 use api::{AppState, Limiter};
+use beacon_node::link::{BoxRead, BoxWrite, Dialer, LinkCfg};
+use beacon_node::queue::QueueLimits;
+use beacon_node::relay::{Relay, RelayConfig};
 use config::Config;
 use masterkey::MasterKey;
 use std::path::{Path, PathBuf};
@@ -238,16 +241,18 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         let l = tokio::net::TcpListener::bind(sa).await?;
         eprintln!("beacon: serving on http://{} (loopback, development)", l.local_addr()?);
         let app = with_page(app, &cfg, served_onion(&cfg).as_deref())?;
+        let onion = served_onion(&cfg).unwrap_or_else(|| format!("{}", l.local_addr().map(|a| a.to_string()).unwrap_or_default()));
+        let relay = start_relay(&cfg, &onion, Arc::new(beacon_node::link::NoDialer))?;
         loop {
             tokio::select! {
                 _ = &mut stop => break,
-                r = l.accept() => if let Ok((s, _)) = r { spawn_conn(s, app.clone(), slots.clone()) },
+                r = l.accept() => if let Ok((s, _)) = r { spawn_conn(s, app.clone(), slots.clone(), relay.clone()) },
             }
         }
     } else {
         // arti's state (the onion key, guards, full vanguard sets) lives in the
         // data folder, so it survives restarts and the guards stay put.
-        let tor = pharos_tor::Tor::start(cfg.data_dir.join("tor-state"), cfg.data_dir.join("tor-cache"), true, pharos_tor::Vanguards::Full).await?;
+        let tor = Arc::new(pharos_tor::Tor::start(cfg.data_dir.join("tor-state"), cfg.data_dir.join("tor-cache"), true, pharos_tor::Vanguards::Full).await?);
         // The onion's keystore nickname keeps the former name (Proteus): it selects
         // the stored identity key, so changing it would change the address.
         let mut hosted = if cfg.restricted_discovery {
@@ -262,11 +267,12 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
         std::fs::write(cfg.data_dir.join("onion.txt"), format!("{}\n", hosted.onion))?;
         eprintln!("beacon: serving on {}", hosted.onion);
         let app = with_page(app, &cfg, Some(&hosted.onion))?;
+        let relay = start_relay(&cfg, &hosted.onion, Arc::new(TorDialer(tor.clone())))?;
         loop {
             tokio::select! {
                 _ = &mut stop => break,
                 s = hosted.incoming.recv() => match s {
-                    Some(s) => spawn_conn(s, app.clone(), slots.clone()),
+                    Some(s) => spawn_conn(s, app.clone(), slots.clone(), relay.clone()),
                     None => bail!("the onion service stopped"),
                 },
             }
@@ -276,14 +282,59 @@ async fn serve(cfg: Config, tcp: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// One HTTP/1 connection; past `max_concurrent` new connections are closed at once.
-fn spawn_conn<S>(s: S, app: axum::Router, slots: Arc<Semaphore>)
+/// One connection: HTTP/1 or (stage b2) a client / Beacon link, told apart by its
+/// first bytes. Past `max_concurrent` new HTTP connections are closed at once; links
+/// are long-lived and counted by the relay (`relay.max_clients`) instead.
+fn spawn_conn<S>(s: S, app: axum::Router, slots: Arc<Semaphore>, relay: Option<Arc<Relay>>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let Ok(permit) = slots.try_acquire_owned() else { return };
     tokio::spawn(async move {
-        beacon::serve_conn(s, app).await;
+        let permit = slots.clone().try_acquire_owned().ok();
+        if permit.is_none() && relay.is_none() {
+            return;
+        }
+        beacon::route_conn(s, app, relay).await;
         drop(permit);
     });
+}
+
+/// Dialling other Beacons over Tor.
+struct TorDialer(Arc<pharos_tor::Tor>);
+
+impl Dialer for TorDialer {
+    fn dial(&self, onion: &str) -> beacon_node::BoxFuture<Result<(BoxRead, BoxWrite)>> {
+        let (t, o) = (self.0.clone(), onion.to_string());
+        Box::pin(async move { Ok(beacon_node::link::boxed(t.dial(&o, pharos_tor::DIAL_TIMEOUT).await?)) })
+    }
+}
+
+/// The relay's node key (signs its Beacon links): 32 random bytes, sealed with the
+/// master key in `node.key`, made on first use.
+fn node_seed(cfg: &Config) -> Result<[u8; 32]> {
+    let key = MasterKey::load(&cfg.master_key)?;
+    let p = cfg.data_dir.join("node.key");
+    if let Ok(b) = std::fs::read(&p) {
+        let plain = key.open("relay-node-key", &b)?;
+        return plain.as_slice().try_into().context("node.key does not hold 32 bytes");
+    }
+    let mut seed = [0u8; 32];
+    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut seed);
+    std::fs::write(&p, key.seal("relay-node-key", &seed))?;
+    Ok(seed)
+}
+
+fn start_relay(cfg: &Config, onion: &str, dialer: Arc<dyn Dialer>) -> Result<Option<Arc<Relay>>> {
+    if !cfg.relay.enabled {
+        return Ok(None);
+    }
+    let r = &cfg.relay;
+    let limits = QueueLimits { max_frames: r.max_queue_frames, max_bytes: r.max_queue_bytes, ttl_secs: r.queue_ttl_days * 86_400, ..QueueLimits::default() };
+    let q = relay_store::SqliteQueue::open(&cfg.data_dir.join("relay.sqlite"), MasterKey::load(&cfg.master_key)?, limits)?;
+    let mut rc = RelayConfig::new(onion);
+    rc.max_clients = r.max_clients;
+    rc.link = LinkCfg { max_frame: 16 * 1024 * 1024, write_timeout: std::time::Duration::from_secs(20), cover_every: 30 };
+    let relay = Relay::start(rc, &node_seed(cfg)?, dialer, Arc::new(q));
+    eprintln!("beacon: relay on (client links and the Beacon mesh on the same onion)");
+    Ok(Some(relay))
 }

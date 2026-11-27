@@ -20,6 +20,29 @@ pub struct Config {
     /// mailbox. Phones without a key simply stay on the mesh.
     pub restricted_discovery: bool,
     pub limits: Limits,
+    /// Stage b2: serve client links and the Beacon mesh on the same onion.
+    pub relay: RelayLimits,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RelayLimits {
+    /// Serve client links and mesh with other Beacons (on by default).
+    pub enabled: bool,
+    /// Devices attached at once.
+    pub max_clients: usize,
+    /// Frames kept per (device, room) while the device is away.
+    pub max_queue_frames: usize,
+    /// Bytes kept per (device, room).
+    pub max_queue_bytes: usize,
+    /// A kept frame is dropped after this many days.
+    pub queue_ttl_days: u64,
+}
+
+impl Default for RelayLimits {
+    fn default() -> Self {
+        RelayLimits { enabled: true, max_clients: 1024, max_queue_frames: 2000, max_queue_bytes: 32 * 1024 * 1024, queue_ttl_days: 14 }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,6 +98,7 @@ impl Default for Config {
             page: true,
             restricted_discovery: false,
             limits: Limits::default(),
+            relay: RelayLimits::default(),
         }
     }
 }

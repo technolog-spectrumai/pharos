@@ -28,6 +28,17 @@
 //! Everything the embedder provides (events, the device key, room membership,
 //! the sealed keystore, other stream kinds) goes through the [`Host`] trait;
 //! the constants and directories through [`MeshConfig`].
+//!
+//! Stage b2 (apps attach to one Beacon; only Beacons mesh) lives in [`relay`]
+//! (the Beacon server: client links in, the Beacon mesh, offline queues, relayed
+//! redemptions), [`proto`] (hellos and ops, PROTOCOL.md Part C), [`queue`] (what a
+//! Beacon keeps) and [`link`] (pluggable streams). The app mesh above stays for the
+//! Tauri app until stage 5.
+
+pub mod link;
+pub mod proto;
+pub mod queue;
+pub mod relay;
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
