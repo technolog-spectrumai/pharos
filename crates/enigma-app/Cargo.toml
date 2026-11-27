@@ -1,0 +1,21 @@
+[package]
+name = "enigma-app"
+version = "0.1.0"
+description = "Enigma's UI-agnostic app layer: state, actions, backend trait (demo + real stub), codes, avatars, texts. Shared by enigma-slint and enigma-tui."
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version.workspace = true
+license = "MIT"
+publish = false
+
+[dependencies]
+enigma-core = { path = "../enigma-core" }
+qrcodegen = "1.8"
+sha2 = "0.10"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+[lints.rust]
+unsafe_code = "forbid"

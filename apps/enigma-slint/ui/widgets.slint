@@ -1,0 +1,151 @@
+import { Theme } from "theme.slint";
+
+// A letter avatar: first letter of the nickname, white on its palette colour.
+export component Avatar inherits Rectangle {
+    in property <string> letter: "?";
+    in property <color> colour: #55606e;
+    in property <length> size: 36px;
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: colour;
+    Text {
+        text: letter;
+        color: white;
+        font-size: size * 0.46;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A flat icon button (☰, ⋮, ←).
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <color> fg: Theme.header-text;
+    callback clicked;
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    background: ta.has-hover ? #ffffff20 : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    Text {
+        text: icon;
+        color: fg;
+        font-size: 20px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A filled button in the accent colour.
+export component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-width: 96px;
+    height: 38px;
+    border-radius: 8px;
+    background: !enabled ? Theme.border : ta.pressed ? Theme.accent.darker(20%) : ta.has-hover ? Theme.accent.brighter(15%) : Theme.accent;
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    Text {
+        text: root.text;
+        color: white;
+        font-size: Theme.font;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A white rounded card with a title.
+export component Card inherits Rectangle {
+    in property <string> title;
+    background: Theme.panel;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+        if root.title != "" : Text {
+            text: root.title;
+            color: Theme.text;
+            font-size: Theme.font-large;
+            font-weight: 700;
+        }
+        @children
+    }
+}
+
+// One row in a popup menu.
+export component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+    callback clicked;
+    height: 40px;
+    background: ta.has-hover ? Theme.selected : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        Text {
+            text: root.text;
+            color: root.danger ? Theme.warn : Theme.text;
+            font-size: Theme.font;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// The large Enable Beacon toggle (desktop only): a pill with a knob.
+export component BeaconToggle inherits Rectangle {
+    in property <bool> on;
+    in property <string> label-on;
+    in property <string> label-off;
+    in property <string> detail;
+    callback toggled;
+    min-height: 64px;
+    border-radius: 14px;
+    background: on ? Theme.beacon-on : Theme.beacon-off;
+    border-width: on ? 0px : 2px;
+    border-color: Theme.accent;
+    ta := TouchArea { clicked => { root.toggled(); } }
+    HorizontalLayout {
+        padding: 12px;
+        spacing: 12px;
+        alignment: stretch;
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: "⏻  " + (root.on ? root.label-on : root.label-off);
+                color: root.on ? white : Theme.text;
+                font-size: 17px;
+                font-weight: 800;
+            }
+            if root.detail != "" : Text {
+                text: root.detail;
+                color: root.on ? #ffffffd0 : Theme.muted;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+        Rectangle {
+            width: 52px;
+            height: 30px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 15px;
+            background: root.on ? #ffffff55 : Theme.border;
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                x: root.on ? parent.width - self.width - 3px : 3px;
+                y: 3px;
+                background: white;
+                animate x { duration: 150ms; }
+            }
+        }
+    }
+}

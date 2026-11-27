@@ -53,6 +53,8 @@ apps/enigma/run_dev.sh --dual # two profiles (alice, bob) side by side
 ./build.sh beacon pi           # Beacon for a Raspberry Pi (aarch64); `all` for both
 ./build.sh all                # Enigma27, then Beacon
 cargo run -p beacon -- serve -c beacon/packaging/config.yaml --tcp 127.0.0.1:8080   # Beacon on loopback
+cargo run -p enigma-slint -- --demo   # the new Slint app (stage 5), simulated peer Ann
+cargo run -p enigma-tui -- --demo     # the console app
 ```
 
 Packages land in `dist/enigma/enigma/` and `dist/beacon/<arch>/`, each with a

@@ -1,14 +1,13 @@
 //! App state and event handling, independent of terminal I/O (unit-testable).
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
-use enigma_core::{Engine, Event, LinkStatus, Message, MessageKind, MlsStatus};
+use enigma_app::core::Core;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
-use crate::backend::{build_engine, Backend, BeaconInfo};
-use crate::codes;
+use crate::backend::Backend;
 
 /// Which pane has the keyboard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,162 +33,59 @@ pub enum Dialog {
     Friends(String),
 }
 
-/// A paired device.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Friend {
-    /// Device id (64 hex).
-    pub id: String,
-    /// Name.
-    pub name: String,
-}
+pub use enigma_app::core::Friend;
 
-/// The app.
+/// The console app: the shared [`Core`] plus what only a keyboard UI needs
+/// (`app.engine`, `app.friends`, ... reach the core through `Deref`).
 pub struct App {
-    /// The room engine.
-    pub engine: Engine,
-    /// The outside.
-    pub backend: Box<dyn Backend>,
+    /// The shared state and actions.
+    pub core: Core,
     /// Keyboard focus.
     pub focus: Focus,
     /// The open dialog.
     pub dialog: Option<Dialog>,
     /// The message being typed.
     pub input: String,
-    /// Selected row in the rooms list.
-    pub room_sel: usize,
     /// Selected row in the friends list.
     pub friend_sel: usize,
-    /// Friends (memory only).
-    pub friends: Vec<Friend>,
-    /// The Beacon, as last set.
-    pub beacon: BeaconInfo,
-    /// One status line (last error or info).
-    pub status: String,
-    /// Unread counts per room slug.
-    pub unread: HashMap<String, usize>,
     /// Asked to quit.
     pub quit: bool,
-    /// My display name.
-    pub user_name: String,
     /// Where the Beacon button was drawn (set by the UI, for the mouse).
     pub beacon_button: Cell<Rect>,
+}
+
+impl Deref for App {
+    type Target = Core;
+    fn deref(&self) -> &Core {
+        &self.core
+    }
+}
+
+impl DerefMut for App {
+    fn deref_mut(&mut self) -> &mut Core {
+        &mut self.core
+    }
 }
 
 impl App {
     /// An app on a backend; the backend seeds or connects.
     #[must_use]
-    pub fn new(mut backend: Box<dyn Backend>, name: &str) -> Self {
-        let mut engine = build_engine(backend.as_ref(), name);
-        backend.start(&mut engine);
-        let friends = backend.seed_friends().into_iter().map(|(id, name)| Friend { id, name }).collect();
-        let beacon = BeaconInfo { enabled: backend.beacon_enabled(), onion: None, status: "off".into() };
-        let mut app = Self {
-            engine,
-            backend,
+    pub fn new(backend: Box<dyn Backend>, name: &str) -> Self {
+        Self {
+            core: Core::new(backend, name),
             focus: Focus::Input,
             dialog: None,
             input: String::new(),
-            room_sel: 0,
             friend_sel: 0,
-            friends,
-            beacon,
-            status: String::new(),
-            unread: HashMap::new(),
             quit: false,
-            user_name: name.into(),
             beacon_button: Cell::new(Rect::default()),
-        };
-        let _ = app.engine.drain_events();
-        app.sync_selection();
-        app
-    }
-
-    fn sync_selection(&mut self) {
-        if let Some(cur) = self.engine.current_room() {
-            if let Some(i) = self.engine.rooms().iter().position(|r| r.room == cur) {
-                self.room_sel = i;
-            }
         }
     }
 
-    /// Time passes (~250 ms): engine timers, incoming frames, events.
+    /// Time passes (~250 ms).
     pub fn tick(&mut self) {
-        self.engine.tick();
-        self.backend.poll(&mut self.engine);
-        self.drain();
-    }
-
-    fn drain(&mut self) {
-        for ev in self.engine.drain_events() {
-            match ev {
-                Event::MessageAdded(m) if !m.is_self && self.focus != Focus::Input => {
-                    if let Some(r) = self.engine.current_room() {
-                        *self.unread.entry(r.to_string()).or_default() += 1;
-                    }
-                    let _ = m;
-                }
-                Event::Error(e) => self.status = e,
-                Event::RoomsChanged | Event::RoomChanged(_) => self.sync_selection(),
-                _ => {}
-            }
-        }
-        if let Some(e) = self.engine.error() {
-            if self.status.is_empty() {
-                self.status = e.to_string();
-            }
-        }
-    }
-
-    /// The timeline of the current room.
-    #[must_use]
-    pub fn messages(&self) -> &[Message] {
-        self.engine.messages()
-    }
-
-    /// The current room's name.
-    #[must_use]
-    pub fn room_name(&self) -> Option<String> {
-        let cur = self.engine.current_room()?;
-        self.engine.rooms().iter().find(|r| r.room == cur).map(|r| r.name.clone())
-    }
-
-    /// Members linked to us right now.
-    #[must_use]
-    pub fn linked_count(&self) -> usize {
-        self.engine.roster().iter().filter(|p| p.linked && !p.is_self).count()
-    }
-
-    /// "🔒 Encrypted" / "Key exchange" / ...
-    #[must_use]
-    pub fn crypto_label(&self) -> &'static str {
-        match self.engine.mls_status() {
-            MlsStatus::Ready => "\u{1f512} Encrypted",
-            MlsStatus::KeyExchange | MlsStatus::Initializing => "Key exchange",
-            MlsStatus::Error => "Encryption error",
-            MlsStatus::Idle => "No room",
-        }
-    }
-
-    /// "Direct" / "Via Beacon".
-    #[must_use]
-    pub fn route_label(&self) -> &'static str {
-        if self.backend.via_beacon() {
-            "Via Beacon"
-        } else {
-            "Direct"
-        }
-    }
-
-    /// Link state, short.
-    #[must_use]
-    pub fn link_label(&self) -> &'static str {
-        match self.engine.link_status() {
-            LinkStatus::Connected => "connected",
-            LinkStatus::Connecting => "connecting",
-            LinkStatus::Waiting => "waiting",
-            LinkStatus::Disconnected => "disconnected",
-            LinkStatus::Error => "link error",
-        }
+        let viewing = self.focus == Focus::Input;
+        self.core.tick(viewing);
     }
 
     /// The Beacon button's label.
@@ -202,85 +98,12 @@ impl App {
         }
     }
 
-    /// Flip the Beacon.
-    pub fn toggle_beacon(&mut self) {
-        let on = !self.beacon.enabled;
-        match self.backend.set_beacon(on) {
-            Ok(info) => {
-                self.status = match &info.onion {
-                    Some(_) => "Beacon on: share its address with friends.".into(),
-                    None => "Beacon off.".into(),
-                };
-                self.beacon = info;
-            }
-            Err(e) => self.status = format!("Beacon: {e}"),
-        }
-    }
-
-    /// My Friends code.
-    #[must_use]
-    pub fn my_friend_code(&self) -> String {
-        codes::encode_pairing(self.engine.device_id(), &self.user_name)
-    }
-
-    /// The invitation code for the current room.
-    #[must_use]
-    pub fn invitation_code(&self) -> Option<String> {
-        let room = self.engine.current_room()?.to_string();
-        Some(codes::encode_invitation(&codes::Invitation {
-            name: self.room_name().unwrap_or_default(),
-            room,
-            onion: self.engine.my_onion().to_string(),
-        }))
-    }
-
     /// Send what is typed.
     pub fn send(&mut self) {
-        let t = self.input.trim().to_string();
-        if t.is_empty() {
-            return;
+        let t = self.input.clone();
+        if self.core.send(&t) {
+            self.input.clear();
         }
-        if self.engine.mls_status() != MlsStatus::Ready {
-            self.status = "Not encrypted yet: wait for the key exchange.".into();
-            return;
-        }
-        self.engine.send_text(&t);
-        self.input.clear();
-        self.backend.poll(&mut self.engine);
-        self.drain();
-    }
-
-    fn select_room(&mut self, i: usize) {
-        let Some(slug) = self.engine.rooms().get(i).map(|r| r.room.clone()) else { return };
-        self.room_sel = i;
-        if self.engine.current_room() != Some(slug.as_str()) {
-            self.engine.open_room(&slug);
-            self.backend.poll(&mut self.engine);
-        }
-        self.unread.remove(&slug);
-        self.drain();
-    }
-
-    /// Add a friend from a pasted code; returns the check code.
-    pub fn add_friend(&mut self, code: &str) -> Option<String> {
-        let Some((id, name)) = codes::decode_pairing(code) else {
-            self.status = "That is not a friend code.".into();
-            return None;
-        };
-        if id == self.engine.device_id() {
-            self.status = "That is your own code.".into();
-            return None;
-        }
-        let name = if name.trim().is_empty() { id[..8].to_string() } else { name };
-        if let Some(f) = self.friends.iter_mut().find(|f| f.id == id) {
-            f.name = name.clone();
-        } else {
-            self.friends.push(Friend { id: id.clone(), name: name.clone() });
-            self.friends.sort_by(|a, b| a.name.cmp(&b.name));
-        }
-        let check = codes::check_code(self.engine.device_id(), &id);
-        self.status = format!("Added {name}. Check code: {check}");
-        Some(check)
     }
 
     /// A mouse event (the Beacon button).
@@ -330,8 +153,9 @@ impl App {
                 (Focus::Input, false) | (Focus::Friends, true) => Focus::Rooms,
             };
             if self.focus == Focus::Input {
-                if let Some(r) = self.engine.current_room() {
-                    self.unread.remove(r);
+                let core = &mut self.core;
+                if let Some(r) = core.engine.current_room() {
+                    core.unread.remove(r);
                 }
             }
             return;
@@ -361,7 +185,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.move_sel(-1),
             KeyCode::Down => self.move_sel(1),
             KeyCode::Enter if self.focus == Focus::Rooms => {
-                self.select_room(self.room_sel);
+                let i = self.room_sel;
+                self.core.open_room(i);
                 self.focus = Focus::Input;
             }
             _ => {}
@@ -369,9 +194,10 @@ impl App {
     }
 
     fn move_sel(&mut self, d: isize) {
+        let (rooms, friends) = (self.core.engine.rooms().len(), self.core.friends.len());
         let (sel, len) = match self.focus {
-            Focus::Rooms => (&mut self.room_sel, self.engine.rooms().len()),
-            Focus::Friends => (&mut self.friend_sel, self.friends.len()),
+            Focus::Rooms => (&mut self.core.room_sel, rooms),
+            Focus::Friends => (&mut self.friend_sel, friends),
             Focus::Input => return,
         };
         if len > 0 {
@@ -395,45 +221,29 @@ impl App {
                     return;
                 }
                 self.dialog = None;
-                match self.engine.create_room(&name) {
-                    Some(_) => {
-                        self.status = format!("Room \u{201c}{name}\u{201d} created.");
-                        self.focus = Focus::Input;
-                    }
-                    None => self.status = self.engine.error().unwrap_or("could not create the room").to_string(),
+                if self.core.create_room(&name) {
+                    self.focus = Focus::Input;
                 }
-                self.drain();
             }
             (KeyCode::Enter, Dialog::Join(t)) => {
                 let code = t.clone();
-                let Some(inv) = codes::decode_invitation(&code) else {
-                    self.status = "That is not an invitation code.".into();
+                if enigma_app::codes::decode_invitation(&code).is_none() {
+                    self.core.status = self.core.tr("join.notACode");
                     return;
-                };
-                self.dialog = None;
-                match self.backend.redeem(&mut self.engine, &inv) {
-                    Ok(()) => {
-                        self.status = format!("Joined \u{201c}{}\u{201d}.", inv.name);
-                        self.focus = Focus::Input;
-                    }
-                    Err(e) => self.status = format!("Join: {e}"),
                 }
-                self.drain();
+                self.dialog = None;
+                if self.core.join(&code) {
+                    self.focus = Focus::Input;
+                }
             }
             (KeyCode::Enter, Dialog::Friends(t)) => {
                 let code = t.clone();
-                if self.add_friend(&code).is_some() {
+                if self.core.add_friend(&code).is_some() {
                     self.dialog = Some(Dialog::Friends(String::new()));
                 }
             }
             _ => {}
         }
-    }
-
-    /// Human rows only (for tests and the chat pane).
-    #[must_use]
-    pub fn texts(&self) -> Vec<(bool, String)> {
-        self.messages().iter().filter(|m| m.kind == MessageKind::Text).map(|m| (m.is_self, m.content.clone())).collect()
     }
 }
 
@@ -441,6 +251,8 @@ impl App {
 mod tests {
     use super::*;
     use crate::backend::{DemoBackend, RealBackend, NOT_CONNECTED};
+    use crate::codes;
+    use enigma_core::MlsStatus;
 
     fn key(c: KeyCode) -> KeyEvent {
         KeyEvent::new(c, KeyModifiers::NONE)
