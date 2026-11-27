@@ -618,6 +618,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "beacon-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arti-client",
+ "blake3",
+ "chacha20poly1305",
+ "ed25519-dalek 3.0.0",
+ "futures-lite",
+ "hex",
+ "postcard",
+ "rustls",
+ "safelog",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tor-cell",
+ "tor-config",
+ "tor-guardmgr",
+ "tor-hsservice",
+ "tor-rtcompat",
+ "typed-index-collections",
+ "uuid",
+]
+
+[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2119,6 +2145,7 @@ version = "0.2.4"
 dependencies = [
  "anyhow",
  "arti-client",
+ "beacon-node",
  "blake3",
  "chacha20poly1305",
  "cpal",
