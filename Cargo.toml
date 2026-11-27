@@ -13,6 +13,7 @@ members = [
     "crates/pharos-tor",
     "beacon",
     "crates/enigmatite",
+    "crates/enigma-core",
     "apps/enigma/src-tauri",
 ]
 exclude = [

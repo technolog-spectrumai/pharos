@@ -2158,6 +2158,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "enigma-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek 3.0.0",
+ "enigmatite",
+ "hex",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "enigmatite"
 version = "0.1.0"
 dependencies = [
