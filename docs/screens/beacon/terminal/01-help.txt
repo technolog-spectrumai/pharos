@@ -1,0 +1,12 @@
+$ beacon help
+Beacon 0.1.0: the optional Pharos helper, reached only over Tor.
+
+usage:
+  beacon init   [-c config.yaml]           make the master key and data folder
+  beacon check  [-c config.yaml]           key permissions, disk encryption, config
+  beacon serve  [-c config.yaml]           serve on an onion service
+  beacon serve  --tcp 127.0.0.1:PORT       …on loopback TCP instead (tests, development)
+  beacon status [-c config.yaml]           row counts and the onion address
+  beacon backup [-c config.yaml] OUT       a consistent copy of the database
+  beacon code   [-c config.yaml] [--png F] its code for Enigma, as text and a QR (and a PNG)
+

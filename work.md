@@ -9,6 +9,19 @@ and this client, built here as Nautes, is now **Enigma** (`enigma/`,
 were rewritten to the new names: "Vesper" there means the app this one was
 forked from, "Enigma" this client.
 
+## Beacon (the owner, 2026-11-22)
+
+"Just rename": the server Relay is now **Beacon**: folder `beacon/`, crate and
+binary `beacon`, `/etc/beacon`, `/var/lib/beacon`, user `beacon`, `beacon.service`,
+`beacon.sqlite`, the code `pharos-beacon:…` (`pharos_id::BeaconCode`), the page's
+`/beacon-qr.png` and `/beacon.txt`, `"service":"beacon"` in `/v1/health`. As
+before, the master key's labels (`"proteus 2026 …"`) and the keystore
+nickname (`host("proteus")`) keep the oldest name. "Relay" in the notes below
+is this server under its previous name; "relay" in lower case where it means
+a Tor relay stays. Same day: arti is built with `vanguards`, and Beacon runs
+full vanguards (`pharos_tor::Vanguards::Full`, set explicitly because arti
+0.43 does not read `vanguards-hs-service` yet).
+
 ## Relay (the owner, 2026-11-06)
 
 "Replace name proteus to name relay." The server is now **Relay**: folder `relay/`,
@@ -317,3 +330,15 @@ OS.
 - **PD10.** Device keys only for now; Heliodor identities later if wanted.
 - **PD11 (the owner).** Enigma works without Relay; Relay is an optional
   helper for offline delivery and for finding friends again.
+
+## Enigma27 replaces the client — documentation (2026-11-23)
+
+Pharos is now Enigma27 (`apps/enigma`, from technolog-spectrumai/enigma `dev_mvp1`, copied) and Beacon (`beacon/`, renamed from Relay). The docs were brought in line:
+
+- **README.md** (root): short — the two parts, a paragraph on the mesh over Tor, MLS and the vault, the run/build/test commands, a table of directories. Friends, pairing, rendezvous onions for the client, pharos-node, Vesper's groups and iroh are gone from it.
+- **PROTOCOL.md**: Part A is Enigma27's mesh (links, `Hello{name, peer_id, kind?, onion?}` / `Ready{ok}`, kinds room/redeem/file, 4-byte LE + JSON frames up to 16 MiB, the room frames, invitations, downloads). Part B is the friend protocol Beacon serves, with its §1–§5 numbers kept.
+- **SECURITY.md**: Part 1 is Enigma27 (who learns what: a network observer, Tor relays, a member, anyone who knows a member's onion, an invitation holder, a thief; vanguards for both; messages at rest; Stage 7 gaps). Part 2 is Beacon's model as it was.
+- **apps/enigma/technology.md**: §1–§13 rewritten for the mesh (§11 is now "The Tor mesh and vanguards", §12 "How Enigma keeps and encrypts messages"; the DHT section it replaces was already a removal note); §16 has a "Moved to Pharos" entry; §18 for invitations over the onion; §15, §19, §24 and the roadmap corrected. Section numbers are unchanged (code and tests cite §9.3, §9.5, §9.7, §15, §16, §18, §19, §20).
+- **apps/enigma/README.md**, **apps/enigma/todo.md** (a Stage 2 for the move), **beacon/README.md** (says plainly that Enigma27 does not talk to Beacon yet).
+
+Found in the code while writing (not fixed here; in apps/enigma/todo.md 2.6–2.8): `mls_reset_request` is a plaintext, unauthenticated frame that makes a member start a new group of one; the MLS identity is the profile name, so two "default" profiles collide; inbound links are accepted on the onion the `Hello` claims and `broadcast` writes to every live link, so anyone who knows a member's onion receives its frames (MLS ciphertext with the sender fields in the clear).

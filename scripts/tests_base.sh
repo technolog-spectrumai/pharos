@@ -19,14 +19,16 @@ tests_step js   "Dromon: files → commands"        'node --test dromon/plan.tes
 tests_step js   "Dromon: every variant validates" './build.sh all --validate'
 tests_step js   "scripts: lib.sh, tests_lib.sh"   'node --test scripts/lib.test.mjs'
 tests_step js   "scripts: vite-shared.mjs"        'node --test scripts/vite-shared.test.mjs'
+tests_step js   "CI on nabu: workflows, night, delivery" 'python3 -m unittest discover -s tools/ci'
 tests_step rust "substrate"                       'cargo test -p substrate'
 # The feature that reaches gervasius's gervazy half, and so OpenSSL: Morion
-# turns it on, Vesper must not. Both shapes have to keep working.
+# turns it on, Enigma must not. Both shapes have to keep working.
 tests_step rust "substrate, legacy-detect"        'cargo test -p substrate --features legacy-detect'
 tests_step rust "gervasius (at-rest crypto)"      'cargo test -p gervasius'
 tests_step rust "gervasius, gervazy"              'cargo test -p gervasius --features gervazy'
 tests_step rust "rotor_core (MLS)"                'cargo test -p rotor-core'
 tests_step rust "ferrozine (P2P transport)"       'cargo test -p ferrozine'
+tests_step rust "witherite (hash chains)"         'cargo test -p witherite'
 # Its own workspace (see crates/heliodor/Cargo.toml), so it is selected by manifest.
 tests_step rust "heliodor (DIDs)"                 'cargo test --manifest-path crates/heliodor/Cargo.toml --all-features'
 

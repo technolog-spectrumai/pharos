@@ -190,6 +190,49 @@ impl RotorSession {
         Ok(())
     }
 
+    /// Parses and validates a KeyPackage message (its signature and lifetime).
+    fn validated_key_package(&self, key_package_bytes: &[u8]) -> RotorResult<KeyPackage> {
+        let key_package_message =
+            MlsMessageIn::tls_deserialize_exact(key_package_bytes).map_err(rotor_err)?;
+
+        let key_package_in = match key_package_message.extract() {
+            MlsMessageBodyIn::KeyPackage(key_package) => key_package,
+            _ => return Err("expected an MLS KeyPackage message".to_string()),
+        };
+
+        key_package_in
+            .validate(self.provider.crypto(), ProtocolVersion::Mls10)
+            .map_err(rotor_err)
+    }
+
+    /// The identity a KeyPackage's credential claims, once the package checks
+    /// out (signature, lifetime). This is the name `members()` will list for
+    /// whoever joins with it.
+    pub fn key_package_identity(&self, key_package_bytes: &[u8]) -> RotorResult<String> {
+        let key_package = self.validated_key_package(key_package_bytes)?;
+        let basic = BasicCredential::try_from(key_package.leaf_node().credential().clone())
+            .map_err(rotor_err)?;
+        String::from_utf8(basic.identity().to_vec()).map_err(rotor_err)
+    }
+
+    /// `add_member`, but only if the KeyPackage's credential names
+    /// `identity`: an application that vouched for someone (a signature by
+    /// their device, a roster) adds exactly that someone, never a package
+    /// that claims another name inside.
+    pub fn add_member_as(
+        &mut self,
+        key_package_bytes: &[u8],
+        identity: &str,
+    ) -> RotorResult<(Vec<u8>, Vec<u8>)> {
+        let claimed = self.key_package_identity(key_package_bytes)?;
+        if claimed != identity {
+            return Err(format!(
+                "the key package is for {claimed:?}, not {identity:?}"
+            ));
+        }
+        self.add_member(key_package_bytes)
+    }
+
     pub fn add_member(&mut self, key_package_bytes: &[u8]) -> RotorResult<(Vec<u8>, Vec<u8>)> {
         let mut group = self.load_group()?;
 
@@ -200,17 +243,7 @@ impl RotorSession {
                 "signing keys are missing; call create_group() before add_member()".to_string()
             })?;
 
-        let key_package_message =
-            MlsMessageIn::tls_deserialize_exact(key_package_bytes).map_err(rotor_err)?;
-
-        let key_package_in = match key_package_message.extract() {
-            MlsMessageBodyIn::KeyPackage(key_package) => key_package,
-            _ => return Err("expected an MLS KeyPackage message".to_string()),
-        };
-
-        let key_package = key_package_in
-            .validate(self.provider.crypto(), ProtocolVersion::Mls10)
-            .map_err(rotor_err)?;
+        let key_package = self.validated_key_package(key_package_bytes)?;
 
         let key_packages = vec![key_package];
 
@@ -466,6 +499,27 @@ impl RotorSession {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn add_member_as_adds_only_the_identity_the_package_names() {
+        let mut alice = RotorSession::new("room".into(), "alice".into()).unwrap();
+        alice.create_group().unwrap();
+        let mut bob = RotorSession::new("room".into(), "bob".into()).unwrap();
+        let kp = bob.key_package().unwrap();
+
+        assert_eq!(alice.key_package_identity(&kp).unwrap(), "bob");
+        // Vouched for as someone else: refused, and nobody is added.
+        assert!(alice.add_member_as(&kp, "carol").is_err());
+        assert_eq!(alice.members().unwrap(), vec!["alice".to_string()]);
+        // Vouched for as bob: added.
+        let (welcome, _commit) = alice.add_member_as(&kp, "bob").unwrap();
+        bob.join_from_welcome(&welcome).unwrap();
+        let mut ids = alice.members().unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["alice".to_string(), "bob".to_string()]);
+        // Garbage is not a key package.
+        assert!(alice.key_package_identity(b"nope").is_err());
+    }
+
     use super::*;
     use std::ops::Range;
 

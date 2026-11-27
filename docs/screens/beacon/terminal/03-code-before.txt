@@ -1,0 +1,3 @@
+$ sudo -u beacon beacon code -c /etc/beacon/config.yaml
+beacon: no address yet: run `beacon serve` once; Tor makes the address then
+

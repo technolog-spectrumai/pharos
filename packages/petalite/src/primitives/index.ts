@@ -3,10 +3,7 @@
 // Every Oya primitive that knows nothing about one app: a button, an icon
 // button, a modal, a text field, a text area, a QR code, a card, a badge, an
 // avatar, a copy field, an empty state and a section header. They began in
-// vesper's rakotis; the apps import them from here (Vesper included).
-//
-// Only the Privacy HP meter and price stay in rakotis: they import vesper's
-// price table.
+// enigma's rakotis; the apps import them from here (Enigma and Vesper included).
 //
 // OyaQrCode lazy-imports `qrcode`, which this package declares, so any app
 // that lists petalite as a workspace gets it installed.

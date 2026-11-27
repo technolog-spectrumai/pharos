@@ -1,5 +1,5 @@
 name: release
-# On a tag v*: Enigma for Linux and Windows, Relay for Raspberry Pi (arm64 binary and .deb).
+# On a tag v*: Enigma for Linux, Windows and Android, Beacon for Raspberry Pi (arm64 binary and .deb).
 on:
   push:
     tags: ["v*"]
@@ -20,7 +20,7 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npx tauri build
-        working-directory: enigma
+        working-directory: apps/enigma
       - uses: actions/upload-artifact@v4
         with:
           name: enigma-${{ runner.os }}
@@ -29,7 +29,39 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
-  relay-arm64:
+  enigma-android:
+    # arm64 phones. Signed with the release key when the ANDROID_KEYSTORE_BASE64,
+    # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD secrets are set; otherwise a debug-signed APK (installs, not for a store).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: dtolnay/rust-toolchain@1.94
+        with: { targets: aarch64-linux-android }
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: keystore
+        env: { KS: "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" }
+        run: if [ -n "$KS" ]; then echo "$KS" | base64 -d > "$RUNNER_TEMP/release.jks"; fi
+      - name: build
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+          ENIGMA_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          ENIGMA_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ENIGMA_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ENIGMA_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -s "$ENIGMA_KEYSTORE_FILE" ]; then TYPE=release; else TYPE=debug; fi
+          bash tools/android/build_android.sh enigma "$TYPE" aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enigma-android
+          path: apps/enigma/src-tauri/gen/android/app/build/outputs/**/*.ap*
+
+  beacon-arm64:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -37,11 +69,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.94
         with: { targets: aarch64-unknown-linux-gnu }
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p relay --target aarch64-unknown-linux-gnu
-      - run: cargo install cargo-deb --locked && cargo deb -p relay --target aarch64-unknown-linux-gnu --no-build
+      - run: cargo build --release -p beacon --target aarch64-unknown-linux-gnu
+      - run: cargo install cargo-deb --locked && cargo deb -p beacon --target aarch64-unknown-linux-gnu --no-build
       - uses: actions/upload-artifact@v4
         with:
-          name: relay-arm64
+          name: beacon-arm64
           path: |
-            target/aarch64-unknown-linux-gnu/release/relay
+            target/aarch64-unknown-linux-gnu/release/beacon
             target/aarch64-unknown-linux-gnu/debian/*.deb

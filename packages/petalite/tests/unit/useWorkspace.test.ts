@@ -21,6 +21,8 @@ const fsPlugin = vi.hoisted(() => ({
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => fsPlugin);
 vi.mock("@tauri-apps/plugin-dialog", () => dialog);
+const core = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => core);
 
 const ROOT_KEY = "zinnia:workspace";
 const RECENT_KEY = "zinnia:workspaces:recent";
@@ -168,6 +170,27 @@ describe("choosing a folder", () => {
     expect(shape(ws.rows.value)).toEqual(["notes", "a.md"]);
     expect(JSON.parse(storage.data.get(ROOT_KEY)!)).toEqual({ root: "/home/me/work" });
     expect(ws.recent.value).toEqual(["/home/me/work"]);
+  });
+
+  it("falls back to the app's own folder where there is no folder picker (Android)", async () => {
+    disk({ "/data/app/Workspace": ["a.md"] });
+    dialog.open.mockRejectedValue(new Error("Folder picker is not implemented on mobile"));
+    core.invoke.mockResolvedValue("/data/app/Workspace");
+    const { ws } = await workspace();
+
+    await ws.pickRoot();
+
+    expect(core.invoke).toHaveBeenCalledWith("workspace_device_root");
+    expect(ws.root.value).toBe("/data/app/Workspace");
+  });
+
+  it("says so, instead of throwing, when there is neither a picker nor a device folder", async () => {
+    dialog.open.mockRejectedValue(new Error("Folder picker is not implemented on mobile"));
+    core.invoke.mockRejectedValue(new Error("unknown command"));
+    const { ws } = await workspace();
+
+    await expect(ws.pickRoot()).resolves.toBeUndefined();
+    expect(ws.error.value).toBe("files.desktopOnly");
   });
 
   it("keeps the current folder when the dialog is cancelled, and drops the old complaint", async () => {

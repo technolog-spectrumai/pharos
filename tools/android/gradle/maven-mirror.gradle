@@ -1,0 +1,17 @@
+// Maven Central rate-limits this machine (429): every repository pointing at
+// repo.maven.apache.org is redirected to Google's mirror of it.
+def MIRROR = "https://maven-central.storage-download.googleapis.com/maven2/"
+def redirect = { repos ->
+    repos.withType(MavenArtifactRepository).configureEach { r ->
+        if (r.url?.host == "repo.maven.apache.org" || r.url?.host == "repo1.maven.org") r.url = MIRROR
+    }
+}
+beforeSettings { settings ->
+    redirect(settings.pluginManagement.repositories)
+    redirect(settings.buildscript.repositories)
+    redirect(settings.dependencyResolutionManagement.repositories)
+}
+allprojects {
+    redirect(buildscript.repositories)
+    redirect(repositories)
+}

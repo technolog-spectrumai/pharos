@@ -6,7 +6,7 @@ rust-version.workspace = true
 description = "At-rest encryption primitives: Argon2id KDF + XChaCha20-Poly1305 wrapped-key vault envelope."
 
 # Pure-Rust, wasm-clean. Named for St. Gervasius (paired with Protasius) — the
-# crypto half of Vesper's encryption-at-rest; the store half is `protasius`.
+# crypto half of Enigma's encryption-at-rest; the store half is `protasius`.
 
 [dependencies]
 argon2 = "0.5"
@@ -31,12 +31,15 @@ sha2 = { version = "0.10", default-features = false }
 #
 # OPTIONAL, and off by default, because `fernet` pulls `openssl` and so
 # `openssl-sys` — native OpenSSL, in a crate whose whole point is being pure
-# Rust and wasm-clean. Vesper had no OpenSSL by any other route before the two
+# Rust and wasm-clean. Enigma had no OpenSSL by any other route before the two
 # forks were merged; gating it keeps that true for consumers that never touch
 # the platform format. Zinnia turns it on: `features = ["gervazy"]`.
 # fernet's `rustcrypto` backend instead of its default OpenSSL one: pure Rust,
 # so it cross-compiles for Android with no OpenSSL to find.
-fernet = { version = "0.2", optional = true, default-features = false, features = ["rustcrypto"] }
+# `fernet_danger_timestamps` exposes decrypt_at_time: a stored token is opened
+# with no TTL and no clock, as the platform's Python opens it, which is also
+# what lets it run in WebAssembly, where there is no clock.
+fernet = { version = "0.2", optional = true, default-features = false, features = ["rustcrypto", "fernet_danger_timestamps"] }
 base64 = { version = "0.22", optional = true }
 
 [features]

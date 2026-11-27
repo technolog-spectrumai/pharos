@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+  adduser --system --group --home /var/lib/beacon --no-create-home beacon >/dev/null 2>&1 || true
+  install -d -o beacon -g beacon -m 0700 /var/lib/beacon /etc/beacon
+  [ -f /etc/beacon/config.yaml ] || install -o beacon -g beacon -m 0600 /etc/beacon/config.yaml.example /etc/beacon/config.yaml
+  runuser -u beacon -- /usr/bin/beacon init -c /etc/beacon/config.yaml || true
+  echo "Beacon installed. Start it: sudo systemctl enable --now beacon"
+  echo "Its address: sudo -u beacon beacon status -c /etc/beacon/config.yaml"
+fi
+#DEBHELPER#

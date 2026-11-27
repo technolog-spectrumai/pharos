@@ -45,3 +45,40 @@ Approved and built through Stage 6 (2026-11-05). Decisions (work.md): **D1** pai
 ## Stage 6 — Release
 - [x] 6.1 PROTOCOL.md, README, technology.md, THIRD_PARTY.md
 - [x] 6.2 Packages: Enigma for Linux and Windows (Android later), Relay as an aarch64 binary and a .deb for Raspberry Pi OS — Relay .deb built and install-tested here; Enigma bundles come from release.yml (not yet run)
+
+## Stage 7 — Metadata hardening (open, 2026-11-22)
+Gaps found while reviewing Enigma26 (technolog-spectrumai/enigma, `dev_mvp1`) before it moves here, always on Tor.
+- [x] 7.1 Message padding in Enigma26 rooms: pad every frame (chat, key packages, commits, files) to fixed buckets before MLS, as `pharos-wire` does (512 / 2048 / 8192 B, then multiples of 32 KiB); refuse non-zero padding
+- [x] 7.2 Sealed sender: move `device_id`, `user`, `sender_name`, `sender_avatar_url` and `msg_id` out of the plaintext JSON envelope and inside the MLS ciphertext; the outer frame carries only the epoch and the padded blob
+- [x] 7.3 No captain: a proper mesh (decided 2026-11-22). Every member hosts its own onion and links to every other member; messages go to each link directly (no member relays or sees all traffic); a joiner learns the other members' onions from the MLS group state (inside the ciphertext), not from one host; add Tor client authorisation (restricted discovery, arti feature `restricted-discovery`) so only members can fetch a member's descriptor. Remove the captain code (election, failover, relaying) — done; client authorisation moved to Beacon, optional (8.A3)
+- [x] 7.4 Timing correlation: cover traffic while a room is open (one padded frame every T seconds per link, real or dummy, real messages take the next slot; T configurable, longer on mobile data/battery); jittered, randomised fetch times instead of the fixed 60 s tick for Beacon's mailbox; see 7.5
+- [x] 7.5 Vanguards: neither Pharos nor Enigma26 builds arti with the `vanguards` feature (both use `default-features = false`), so onion circuits pick their middle relays at random and the guard of a hosted onion can be found. Enable the feature (arti 0.43 then defaults to vanguards-lite for clients and full vanguards for onion services: 4 L2 relays kept 1–12 days, 8 L3 relays kept 1–48 h), keep arti's state directory across restarts (inside the encrypted profile) so the vanguard sets survive, and test the effect on time to connect
+
+## Stage 8 — Beacon by default, never indispensable (decided 2026-11-25)
+Beacon is the default meeting point and mailbox of a room; the mesh keeps working without it.
+The gap is kept small: Beacon only ever handles sealed, padded, steady traffic it cannot link to anyone.
+- [x] 8.A1 Sealed sender (= 7.2): device id, name and msg id inside MLS; the outer frame only epoch + blob
+- [x] 8.A2 Padding (= 7.1): every frame padded to 512 B / 2 KiB / 8 KiB / n × 32 KiB
+- [x] 8.A3 Tor restricted discovery on **Beacon's** onion, optional, off by default; member onions stay open
+  - [x] a. Beacon: `restricted_discovery: true` in its config → arti `key_dirs` = `<data>/clients/*.auth` (plain Linux, file watching is fine there); a client is added by dropping its key file in
+  - [x] b. Phone: `beacon_discovery_key(onion)` makes (once) or returns this phone's discovery key for a Beacon — the Settings screen that shows it comes with 8.C2. Make a discovery key for its onion (arti `generate_service_discovery_key`, needs `experimental-api` + `keymgr`) and show it for the owner to add
+  - [x] c. `beacon allow NAME KEY` / `deny NAME` / `clients`, keys in `<data>/clients/*.auth` (folder kept 0700)
+  - Checked against the design — no clash, with these rules:
+    - Beacon cannot tell which authorised client opened its descriptor, so fresh circuits per post (8.B3) still don't link posts
+    - Mailbox ids/tokens (8.B1) still gate every mailbox; restricted discovery is an extra DoS layer, not the access control
+    - A room member without a key just can't use that Beacon: they stay on the mesh (8.C3 already works without Beacon), so the room never depends on it
+    - Invitation redemption goes to the inviter's onion, not Beacon, so newcomers are unaffected; but Beacon can't be the "door" in restricted mode, and `/v1/pairing` only works for authorised clients
+    - Adding a client takes seconds–minutes (descriptor republish is rate-limited); removing one isn't instant — tokens rotate weekly anyway
+- [x] 8.B1 Room mailbox ids and tokens from the MLS exporter (current epoch + week number, so they move with every commit and every week; removed members cannot derive them); Beacon keeps only hashes — `mls_mailbox`
+- [x] 8.B2 Beacon endpoints: post / fetch / ack frames per mailbox, 14-day expiry, quotas (500 frames / 8 MiB per mailbox), rate limits — already in Beacon
+- [x] 8.B3 Members post every frame to the mailbox too, each post on a fresh circuit (`beacon.rs`, isolated arti client per request; `beaconMailbox.ts` sends only the sealed frame, never the room's name; reads this and last week's mailbox). Off until a room has a Beacon (8.C)
+- [x] 8.B4 Duplicates from both routes dropped by msg id (inside MLS after 8.A1); our own frames coming back from Beacon are recognised before decrypting (a per-device send log of frame hashes), since MLS cannot open its own messages — done with the mailbox's seen list: frames we send and frames that come by the mesh are noted, so the Beacon copy is skipped before MLS sees it. Note: the outer frame carries a `ts` (send time) in clear; Beacon knows post times anyway
+- [x] 8.C1 The room's Beacon address stored with the room (`P2pRoomEntry.beacon`) and shared inside the encrypted presence message; the first one heard is kept
+- [x] 8.C2 New rooms use your Beacon if one is set (Settings → Connections → `BeaconCard`, scan or paste its code; shows this phone's key for restricted mode); none → pure mesh
+- [x] 8.C3 Phones use both routes: every frame goes over the mesh and to Beacon, work on if Beacon is down; room header says "Via Beacon" / "Direct" / "Beacon unreachable"
+- [x] 8.C4 Invitations name the room's Beacon (ticket format 2); if the inviter is offline the redemption is left there sealed with the capability (`invite_drop.rs`), the inviter's phone answers it when back (polls open invitations ~every 45–65 s), the newcomer waits up to 30 min ("waiting at their Beacon"). Old 0.2.3 tickets are refused as another version
+- [x] 8.D1 Cover traffic on every mesh link while a room is open: a padded 512 B dummy in any slot without a real frame, every 30 s (90 s on Android) ±20 %; the reader drops it. Not posted to Beacon (dummies would fill mailboxes); Beacon gets dummy reads instead (8.D2)
+- [x] 8.D2 Poisson-timed fetches (exponential gaps around 30 s, clamped 5 s–2 min) and dummy fetches of random mailbox ids (half the time)
+- [x] 8.D3 Small random release delays on Beacon (0–10 s, `release_delay_secs`); the fetch stops at the first held-back message so cursors never skip. Mailbox caps raised to 2000 frames / 32 MiB
+- [x] 8.E1 SECURITY.md: what Beacon still learns (volume, uptime) and does not (who, which room, what) — Part 1b; stale gaps list rewritten
+- [ ] 8.E2 Tests: room works with Beacon down ✓ (rakotis sharedOptions); never-overlapping members still exchange ✓ ("a member away…"); Beacon's DB reveals no ids/tokens/contents ✓ (store test); **real-Tor run still to do** (needs a machine that reaches Tor)

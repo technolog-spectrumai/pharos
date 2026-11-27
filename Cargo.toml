@@ -1,20 +1,19 @@
-# Pharos: Enigma (the client), Relay (the optional server, from Stage 3) and
+# Pharos: Enigma (the client), Beacon (the optional server, from Stage 3) and
 # the crates they share.
 [workspace]
 resolver = "3"
 members = [
     "crates/gervasius",
     "crates/rotor/rotor_core",
-    "crates/ferrozine",
     "crates/protasius",
     "crates/pharos-wire",
     "crates/pharos-rendezvous",
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
-    "crates/pharos-node",
-    "relay",
-    "enigma/src-tauri",
+    "beacon",
+    "crates/enigmatite",
+    "apps/enigma/src-tauri",
 ]
 exclude = [
     "crates/rotor/bindings",
@@ -26,7 +25,7 @@ rust-version = "1.94"
 [profile.dev]
 split-debuginfo = "unpacked"
 
-# Relay on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
+# Beacon on a Raspberry Pi: small and stripped. (Enigma' bundle uses the same profile.)
 [profile.release]
 strip = true
 lto = "thin"

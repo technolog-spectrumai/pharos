@@ -27,15 +27,44 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$1" >&2; exit 1; }
 # Checked up front, by name, because the failure otherwise arrives minutes in
 # and reads as a compiler error rather than "you have no linker".
 
+# Vite and Vitest (rolldown) need Node 20.19+ or 22.12+; an older one fails in
+# the first test run with "node:util does not provide an export named
+# styleText". Ubuntu 24.04's apt nodejs is 18; a conda environment can also put
+# an old one first on PATH.
+node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+node_fits_vite() {
+  node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit((a===20&&b>=19)||(a===22&&b>=12)||a>=23?0:1)' 2>/dev/null
+}
+
+# A terminal opened before nvm's Node was installed, or one where the system's
+# Node comes first on PATH, would build with the wrong one. When nvm has a
+# Node that fits, it is used for this run.
+use_nvm_node() {
+  local dir="${NVM_DIR:-$HOME/.nvm}"
+  [ -s "$dir/nvm.sh" ] || return 1
+  # shellcheck disable=SC1091
+  . "$dir/nvm.sh" --no-use >/dev/null 2>&1 || return 1
+  nvm use --silent 22 >/dev/null 2>&1 || nvm use --silent default >/dev/null 2>&1 || return 1
+  node_fits_vite
+}
+
 need_node() {
-  command -v node >/dev/null || die "node is not installed"
+  if ! command -v node >/dev/null || ! node_fits_vite; then
+    local found
+    found="$(command -v node >/dev/null && echo "node $(node --version) ($(command -v node))" || echo "no node")"
+    if use_nvm_node; then
+      echo "    $found is too old; using nvm's node $(node --version) for this run"
+    else
+      die "$found; the apps need Node 20.19+ or 22.12+. Run ./install.sh (it installs Node 22 with nvm)."
+    fi
+  fi
   command -v npm  >/dev/null || die "npm is not installed"
   # Present is not the same as working. npm keeps its own dependencies in a
   # node_modules beside it, and a disk cleanup that deletes every node_modules
   # it finds takes that one too — after which every npm command dies with
   # "Cannot find module 'graceful-fs'" and a stack trace that names no cause.
   npm --version >/dev/null 2>&1 \
-    || die "npm is installed but does not run ($(command -v npm)) — its own node_modules is probably gone; reinstall this Node version (nvm install $(node --version) --reinstall-packages-from=current, or reinstall Node)"
+    || die "npm is installed but does not run ($(command -v npm)) — its own node_modules is probably gone. Run ./install.sh to repair it."
 }
 
 # $1: a suggestion for what to do instead, appended to the error. The dev script
@@ -54,9 +83,9 @@ check_system_libs() {
     pkg-config --exists "$pkg" 2>/dev/null \
       || echo "    WARNING: $pkg not found — install libwebkit2gtk-4.1-dev libsoup-3.0-dev"
   done
-  # Vesper's calls (cpal) link ALSA; without it alsa-sys panics mid-build.
+  # Enigma's calls (cpal) link ALSA; without it alsa-sys panics mid-build.
   pkg-config --exists alsa 2>/dev/null \
-    || echo "    WARNING: alsa not found — install libasound2-dev (Vesper)"
+    || echo "    WARNING: alsa not found — install libasound2-dev (Enigma)"
 }
 
 # ── snap ────────────────────────────────────────────────────────────────────

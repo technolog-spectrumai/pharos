@@ -16,7 +16,7 @@
 // you can see where a file sits without walking away from where you are.
 //
 // Rows are FLAT and depth-tagged rather than nested, so the template never
-// recurses: indentation is a padding calculation. That is the shape vesper's
+// recurses: indentation is a padding calculation. That is the shape enigma's
 // file tree and the platform's own explorer both settled on, and it keeps
 // arbitrarily deep folders from becoming arbitrarily deep components.
 //
@@ -205,6 +205,17 @@ function remember(value: string) {
   }
 }
 
+/** Empty the recent list, in memory and in storage. The folder open now is
+ *  not in it and stays open. */
+export function forgetRecent(): void {
+  recent.value = [];
+  try {
+    localStorage.removeItem(RECENT_KEY);
+  } catch {
+    /* a blocked store has nothing to forget */
+  }
+}
+
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -282,7 +293,22 @@ export function useWorkspace() {
     const { open } = await import("@tauri-apps/plugin-dialog");
     // `recursive: true` is what extends the plugin grant to subfolders — the
     // fs-plugin backend needs it; a Rust backend ignores the grant entirely.
-    const picked = await open({ directory: true, multiple: false, recursive: true });
+    let picked: string | string[] | null;
+    try {
+      picked = await open({ directory: true, multiple: false, recursive: true });
+    } catch {
+      // No folder picker here (Android, iOS). An app whose backend offers one
+      // gets its own device folder instead; anything else says so rather
+      // than crashing.
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const own = await invoke<string>("workspace_device_root");
+        await switchRoot(own);
+      } catch {
+        error.value = "files.desktopOnly";
+      }
+      return;
+    }
     // Cancelled. Clear any complaint left over from the folder they came to
     // change — it is about to be re-tested, or it is no longer the subject.
     if (typeof picked !== "string") {

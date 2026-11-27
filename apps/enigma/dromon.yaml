@@ -1,0 +1,56 @@
+# How Enigma27 is built — Dromon's file for this app (schema: dromon/README.md).
+#
+#   ./build.sh enigma                  Enigma27: chat and files, over Tor
+#   ./build.sh enigma --dry-run        the commands, none run
+#   ./run_dev.sh enigma                a dev run of the same build
+#
+# There are no build flags: this file is the whole interface. An unknown key or
+# value is an error, never a default.
+schema: 1
+
+# What the app is.
+app:
+  kind: tauri
+  # Names the app's data directory on every OS, so it never changes; checked
+  # against src-tauri/tauri.conf.json on every run.
+  identifier: com.spectrumaipl.enigma27
+  cargo:
+    workspace: .                  # the repo-root workspace
+    package: enigma
+    test_packages: [protasius]    # tested beside the app, with its features
+  android: true
+  # gervasius has a gervazy half (Morion turns it on in Belisario) that pulls fernet and so OpenSSL.
+  # No Enigma build may ever link it.
+  forbid_crates: [openssl-sys]
+
+# One edition: chat and file transfer between members, always over Tor. The
+# crate has no optional features, so there is no feature list here.
+variants:
+  default:
+    # Packages land in <output_dir>/enigma/ (dist/enigma/), with a SHA256SUMS and a build.json.
+    output_dir: dist
+
+    # The DHT's mainline and the call equalizer's rustfft left with those
+    # features; checked before anything compiles that they stay out.
+    forbid_crates: [mainline, rustfft]
+
+    # Run the frontend and Rust suites first; a failure stops the build before
+    # anything is packaged.
+    test: false
+
+    desktop:
+      enabled: true
+      profile: release          # release | debug (debug builds far faster, runs slower)
+      # Tauri compiles for the machine it runs on, so only this host's formats
+      # are accepted: deb, rpm, appimage on Linux; dmg, app on macOS; msi, nsis
+      # on Windows. Remove the line to use tauri.conf.json's.
+      bundles: [deb, rpm]
+
+    android:
+      enabled: true
+      profile: debug            # debug | release (release needs a signing key — technology.md §19)
+      abis: [aarch64]           # aarch64 (phones) | x86_64 (emulator) | armv7 | i686, or [all]
+      # debug-key (debug) | release-key (release, the default there) | none: a
+      # release deliberately NOT signed — it installs nowhere and must never be
+      # distributed.
+      signing: debug-key
