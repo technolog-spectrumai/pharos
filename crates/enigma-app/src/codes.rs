@@ -106,6 +106,22 @@ pub fn base32_lower(b: &[u8]) -> String {
     out
 }
 
+/// A QR code as a square of modules (true = dark), with the 4-module quiet zone:
+/// (side, row-major modules). For drawing into an image.
+#[must_use]
+pub fn qr_modules(text: &str) -> Option<(usize, Vec<bool>)> {
+    let qr = QrCode::encode_text(text, QrCodeEcc::Low).ok()?;
+    let (q, n) = (4i32, qr.size());
+    let side = (n + 2 * q) as usize;
+    let mut v = Vec::with_capacity(side * side);
+    for y in -q..n + q {
+        for x in -q..n + q {
+            v.push(x >= 0 && y >= 0 && x < n && y < n && qr.get_module(x, y));
+        }
+    }
+    Some((side, v))
+}
+
 /// A QR code as lines of Unicode half blocks: two modules per character row, light modules
 /// drawn, with the standard 4-module quiet zone. The UI draws the lines white on black
 /// so the code reads dark-on-light whatever the terminal's theme.

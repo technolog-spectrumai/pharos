@@ -1,0 +1,590 @@
+// Enigma in Slint: the main window. State comes from Rust (src/lib.rs, on enigma-app's
+// Core); the .slint files only lay it out and raise callbacks.
+import { LineEdit, ScrollView, ListView, ComboBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Avatar, IconButton, PrimaryButton, Card, MenuItem, BeaconToggle } from "widgets.slint";
+
+export { Theme }
+
+export enum Page { chat, friends, settings, new-room, join, invite, participants, room-info }
+
+export struct RoomItem { name: string, letter: string, colour: color, unread: int, selected: bool }
+export struct MessageItem { mine: bool, author: string, text: string, time: string, letter: string, colour: color, first: bool, last: bool, system: bool }
+export struct FriendItem { name: string, letter: string, colour: color, check: string }
+export struct PersonItem { name: string, letter: string, colour: color, is-self: bool, linked: bool }
+
+export struct Texts {
+    app-name: string, chats: string, new-chat: string, join-chat: string, friends: string, settings: string,
+    connections: string, back: string, cancel: string, close: string, copy: string, save: string,
+    placeholder: string, send: string, no-room: string, invite: string, participants: string, room-info: string,
+    reset-encryption: string, leave: string, delete-room: string, new-name: string, create: string,
+    join-paste: string, join-scan: string, join: string, invite-hint: string, friends-intro: string, my-code: string,
+    my-code-hint: string, add-friend: string, paste-friend: string, add: string, friends-none: string, friends-list: string,
+    check-code: string, nickname: string, nickname-hint: string, language: string, theme: string,
+    beacon-title: string, beacon-intro: string, beacon-enable: string, beacon-disable: string, beacon-on: string,
+    beacon-off: string, beacon-on-hint: string, beacon-client-only: string, beacon-address: string, not-connected: string,
+    you: string, linked: string, not-linked: string, host: string, member: string,
+}
+
+// Small helpers ────────────────────────────────────────────────────────────
+
+component TorBadge inherits Rectangle {
+    in property <string> text;
+    in property <bool> ok;
+    height: 24px;
+    border-radius: 12px;
+    background: #ffffff18;
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - 8px) / 2;
+            border-radius: 4px;
+            background: root.ok ? #4fc1b0 : #e07a5f;
+        }
+        Text { text: "🧅 " + root.text; color: Theme.header-text; font-size: 11px; vertical-alignment: center; }
+    }
+}
+
+component PageHeader inherits Rectangle {
+    in property <string> title;
+    callback back;
+    height: 56px;
+    background: Theme.header;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 8px;
+        IconButton { icon: "←"; clicked => { root.back(); } }
+        Text { text: root.title; color: Theme.header-text; font-size: Theme.font-large; font-weight: 700; vertical-alignment: center; }
+        @children
+    }
+}
+
+component Bubble inherits HorizontalLayout {
+    in property <MessageItem> m;
+    in property <length> max-bubble;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: m.first ? 6px : 1px;
+    padding-bottom: 1px;
+    spacing: 8px;
+    alignment: m.system ? center : m.mine ? end : start;
+    if !m.mine && !m.system : VerticalLayout {
+        alignment: end;
+        if m.last : Avatar { letter: m.letter; colour: m.colour; size: 32px; }
+        if !m.last : Rectangle { width: 32px; }
+    }
+    if m.system : Text {
+        text: m.text;
+        color: Theme.muted;
+        font-size: Theme.font-small;
+        font-italic: true;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        max-width: root.max-bubble;
+    }
+    if !m.system : Rectangle {
+        max-width: root.max-bubble;
+        background: m.mine ? Theme.own-bubble : Theme.other-bubble;
+        border-top-left-radius: 16px;
+        border-top-right-radius: 16px;
+        border-bottom-left-radius: !m.mine && m.last ? 5px : 16px;
+        border-bottom-right-radius: m.mine && m.last ? 5px : 16px;
+        VerticalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 7px;
+            padding-bottom: 6px;
+            spacing: 2px;
+            if !m.mine && m.first : Text { text: m.author; color: m.colour.brighter(Theme.dark ? 40% : 0%); font-size: Theme.font-small; font-weight: 700; }
+            Text { text: m.text; color: m.mine ? Theme.own-text : Theme.text; font-size: Theme.font; wrap: word-wrap; }
+            Text {
+                text: "🔒 " + m.time;
+                color: m.mine ? #ffffffb0 : Theme.muted;
+                font-size: 10px;
+                horizontal-alignment: right;
+            }
+        }
+    }
+}
+
+component QrBox inherits Rectangle {
+    in property <image> qr;
+    in property <length> size: 220px;
+    width: size;
+    height: size;
+    background: white;
+    border-radius: 12px;
+    Image { source: root.qr; width: parent.width - 16px; height: parent.height - 16px; image-rendering: pixelated; }
+}
+
+// A read-only, selectable code with a Copy button (clipboard via TextInput.copy()).
+component CodeField inherits Rectangle {
+    in property <string> code;
+    in property <string> copy-label;
+    background: Theme.panel-2;
+    border-radius: 8px;
+    min-height: 44px;
+    HorizontalLayout {
+        padding: 8px;
+        spacing: 8px;
+        ti := TextInput {
+            text: root.code;
+            read-only: true;
+            color: Theme.text;
+            font-size: 12px;
+            single-line: false;
+            wrap: char-wrap;
+            vertical-alignment: center;
+        }
+        PrimaryButton {
+            text: root.copy-label;
+            min-width: 72px;
+            clicked => { ti.select-all(); ti.copy(); ti.clear-selection(); }
+        }
+    }
+}
+
+component ChatList inherits Rectangle {
+    in property <[MessageItem]> messages;
+    in property <int> tick;
+    changed tick => { list.content-y = min(0px, list.visible-height - list.content-height); }
+    list := ListView {
+        for m in root.messages : Bubble { m: m; max-bubble: min(560px, list.visible-width * 0.72); }
+    }
+}
+
+// The window ───────────────────────────────────────────────────────────────
+
+export component AppWindow inherits Window {
+    title: "Enigma";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 340px;
+    min-height: 520px;
+    background: Theme.bg;
+    default-font-size: Theme.font;
+
+    in property <Texts> t;
+    in-out property <Page> page: Page.chat;
+    in property <bool> narrow: false;                  // phone layout (set from Rust)
+    in-out property <bool> show-chat: false;           // narrow layout: chat instead of list
+
+    in property <[RoomItem]> rooms;
+    in property <[MessageItem]> messages;
+    in property <bool> has-room;
+    in property <string> room-name;
+    in property <string> room-letter;
+    in property <color> room-colour;
+    in property <string> state-line;
+    in property <bool> connected: true;
+    in property <string> tor-text;
+    in property <bool> tor-ok;
+    in property <string> status;
+
+    in property <bool> beacon-supported: true;
+    in property <bool> beacon-on;
+    in property <string> beacon-onion;
+    in property <string> beacon-status;
+
+    in property <string> my-name;
+    in property <string> my-letter;
+    in property <color> my-colour;
+    in property <int> lang-index;
+    in property <string> my-friend-code;
+    in property <image> my-qr;
+    in property <[FriendItem]> friends;
+
+    in property <string> invite-title;
+    in property <string> invite-code;
+    in property <image> invite-qr;
+    in property <[PersonItem]> people;
+    in property <string> info-slug;
+    in property <string> info-role;
+
+    in-out property <string> draft;
+
+    callback open-room(int);
+    callback send(string);
+    callback toggle-beacon();
+    callback create-room(string);
+    callback join(string);
+    callback add-friend(string);
+    callback set-nickname(string);
+    callback set-lang(int);
+    callback open-invite();
+    callback reset-encryption();
+    callback leave-room();
+    callback delete-room();
+    // bumped by Rust to scroll the timeline to the newest message
+    in-out property <int> scroll-tick;
+
+    function go(p: Page) { root.page = p; main-menu.close(); }
+
+    // ── main: sidebar + chat ────────────────────────────────────────────
+    HorizontalLayout {
+        visible: root.page == Page.chat || !root.narrow;
+        // sidebar
+        if !root.narrow || !root.show-chat : Rectangle {
+            width: 320px;
+            background: Theme.panel;
+            border-width: 0px;
+            VerticalLayout {
+                Rectangle {
+                    height: 56px;
+                    background: Theme.header;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        IconButton { icon: "☰"; clicked => { main-menu.show(); } }
+                        Text { text: root.t.app-name; color: Theme.header-text; font-size: Theme.font-large; font-weight: 800; vertical-alignment: center; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; TorBadge { text: root.tor-text; ok: root.tor-ok; } }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 16px;
+                    height: 32px;
+                    Text { text: root.t.chats; color: Theme.muted; font-size: Theme.font-small; font-weight: 700; vertical-alignment: center; }
+                }
+                ListView {
+                    vertical-stretch: 1;
+                    for r[i] in root.rooms : Rectangle {
+                        height: 60px;
+                        background: r.selected ? Theme.selected : rta.has-hover ? Theme.panel-2 : transparent;
+                        rta := TouchArea { clicked => { root.open-room(i); root.show-chat = true; } }
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 12px;
+                            VerticalLayout { alignment: center; Avatar { letter: r.letter; colour: r.colour; size: 40px; } }
+                            Text { text: r.name; color: Theme.text; font-size: 15px; font-weight: r.selected ? 700 : 500; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                            if r.unread > 0 : VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 24px; height: 22px; border-radius: 11px; background: Theme.own-bubble;
+                                    Text { text: r.unread; color: white; font-size: 11px; font-weight: 700; }
+                                }
+                            }
+                        }
+                    }
+                }
+                // sidebar footer: me + the big Enable Beacon toggle (desktop only)
+                Rectangle {
+                    background: Theme.panel-2;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 10px;
+                        if root.beacon-supported : BeaconToggle {
+                            on: root.beacon-on;
+                            label-on: root.t.beacon-on;
+                            label-off: root.t.beacon-enable;
+                            detail: root.beacon-on ? root.beacon-onion : root.t.beacon-off;
+                            toggled => { root.toggle-beacon(); }
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Avatar { letter: root.my-letter; colour: root.my-colour; size: 32px; }
+                            Text { text: root.my-name; color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                            IconButton { icon: "⚙"; fg: Theme.muted; clicked => { root.go(Page.settings); } }
+                        }
+                    }
+                }
+            }
+        }
+        // chat
+        if !root.narrow || root.show-chat : Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.bg;
+            VerticalLayout {
+                Rectangle {
+                    height: 56px;
+                    background: Theme.header;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 10px;
+                        if root.narrow : IconButton { icon: "←"; clicked => { root.show-chat = false; } }
+                        if !root.narrow : Rectangle { width: 6px; }
+                        if root.has-room : VerticalLayout { alignment: center; Avatar { letter: root.room-letter; colour: root.room-colour; size: 36px; } }
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+                            Text { text: root.has-room ? root.room-name : root.t.app-name; color: Theme.header-text; font-size: 16px; font-weight: 700; overflow: elide; }
+                            if root.has-room : Text { text: root.state-line; color: #c9cede; font-size: 12px; overflow: elide; }
+                        }
+                        if root.has-room : IconButton { icon: "⋮"; clicked => { room-menu.show(); } }
+                    }
+                }
+                if !root.connected : Rectangle {
+                    background: #c2553f;
+                    HorizontalLayout {
+                        padding: 10px;
+                        Text { text: root.t.not-connected; color: white; font-weight: 600; wrap: word-wrap; }
+                    }
+                }
+                ChatList { vertical-stretch: 1; messages: root.messages; tick: root.scroll-tick; }
+                if !root.has-room : Text {
+                    text: root.t.no-room;
+                    color: Theme.muted;
+                    horizontal-alignment: center;
+                    height: 40px;
+                }
+                if root.status != "" : Text {
+                    text: root.status;
+                    color: Theme.muted;
+                    font-size: Theme.font-small;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+                // composer
+                Rectangle {
+                    background: Theme.panel-2;
+                    HorizontalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+                        input := LineEdit {
+                            placeholder-text: root.t.placeholder;
+                            text <=> root.draft;
+                            enabled: root.has-room;
+                            accepted => { root.send(self.text); }
+                        }
+                        Rectangle {
+                            width: 44px;
+                            height: 40px;
+                            border-radius: 20px;
+                            background: root.draft != "" ? Theme.own-bubble : Theme.border;
+                            TouchArea { clicked => { root.send(root.draft); } }
+                            Text { text: "➤"; color: white; font-size: 18px; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── other pages (full window) ───────────────────────────────────────
+    if root.page == Page.friends : Rectangle {
+        background: Theme.bg;
+        VerticalLayout {
+            PageHeader { title: root.t.friends; back => { root.page = Page.chat; } }
+            ScrollView {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 14px;
+                    alignment: start;
+                    Text { text: root.t.friends-intro; color: Theme.muted; wrap: word-wrap; }
+                    Card {
+                        title: root.t.my-code;
+                        HorizontalLayout { alignment: center; QrBox { qr: root.my-qr; size: 220px; } }
+                        Text { text: root.t.my-code-hint; color: Theme.muted; wrap: word-wrap; font-size: Theme.font-small; }
+                        CodeField { code: root.my-friend-code; copy-label: root.t.copy; }
+                    }
+                    Card {
+                        title: root.t.add-friend;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            friend-in := LineEdit { placeholder-text: root.t.paste-friend; accepted => { root.add-friend(self.text); self.text = ""; } }
+                            PrimaryButton { text: root.t.add; clicked => { root.add-friend(friend-in.text); friend-in.text = ""; } }
+                        }
+                        if root.status != "" : Text { text: root.status; color: Theme.muted; wrap: word-wrap; font-size: Theme.font-small; }
+                    }
+                    Card {
+                        title: root.t.friends-list;
+                        if root.friends.length == 0 : Text { text: root.t.friends-none; color: Theme.muted; }
+                        for f in root.friends : HorizontalLayout {
+                            spacing: 12px;
+                            Avatar { letter: f.letter; colour: f.colour; size: 40px; }
+                            VerticalLayout {
+                                alignment: center;
+                                Text { text: f.name; color: Theme.text; font-weight: 700; }
+                                Text { text: root.t.check-code + "  " + f.check; color: Theme.muted; font-size: Theme.font-small; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.page == Page.settings : Rectangle {
+        background: Theme.bg;
+        VerticalLayout {
+            PageHeader { title: root.t.settings; back => { root.page = Page.chat; } }
+            ScrollView {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 14px;
+                    alignment: start;
+                    Card {
+                        title: root.t.nickname;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            Avatar { letter: root.my-letter; colour: root.my-colour; size: 40px; }
+                            nick := LineEdit { text: root.my-name; accepted => { root.set-nickname(self.text); } }
+                            PrimaryButton { text: root.t.save; clicked => { root.set-nickname(nick.text); } }
+                        }
+                        Text { text: root.t.nickname-hint; color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; }
+                    }
+                    Card {
+                        title: root.t.language;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ComboBox {
+                                model: ["English", "Polski"];
+                                current-index: root.lang-index;
+                                selected => { root.set-lang(self.current-index); }
+                            }
+                            Text { text: root.t.theme; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+                        }
+                    }
+                    Text { text: root.t.connections; color: Theme.muted; font-size: Theme.font-small; font-weight: 700; }
+                    Card {
+                        title: root.t.beacon-title;
+                        Text { text: root.t.beacon-intro; color: Theme.muted; wrap: word-wrap; font-size: Theme.font-small; }
+                        if root.beacon-supported : BeaconToggle {
+                            on: root.beacon-on;
+                            label-on: root.t.beacon-disable;
+                            label-off: root.t.beacon-enable;
+                            detail: root.beacon-status;
+                            toggled => { root.toggle-beacon(); }
+                        }
+                        if root.beacon-supported && root.beacon-on : VerticalLayout {
+                            spacing: 6px;
+                            Text { text: root.t.beacon-on-hint; color: Theme.text; wrap: word-wrap; }
+                            Text { text: root.t.beacon-address; color: Theme.muted; font-size: Theme.font-small; font-weight: 700; }
+                            CodeField { code: root.beacon-onion; copy-label: root.t.copy; }
+                        }
+                        if !root.beacon-supported : Text { text: root.t.beacon-client-only; color: Theme.muted; wrap: word-wrap; }
+                    }
+                    Card {
+                        title: "Tor";
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle { width: 10px; height: 10px; y: (parent.height - 10px) / 2; border-radius: 5px; background: root.tor-ok ? Theme.ok : Theme.warn; }
+                            Text { text: root.tor-text; color: Theme.text; vertical-alignment: center; }
+                        }
+                        if !root.connected : Text { text: root.t.not-connected; color: Theme.warn; wrap: word-wrap; }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.page == Page.new-room || root.page == Page.join : Rectangle {
+        background: #00000080;
+        TouchArea { }
+        Card {
+            title: root.page == Page.new-room ? root.t.new-chat : root.t.join-chat;
+            width: min(440px, root.width - 32px);
+            height: self.preferred-height;
+            dlg-in := LineEdit { placeholder-text: root.page == Page.new-room ? root.t.new-name : root.t.join-paste; }
+            if root.page == Page.join : Text { text: "📷 " + root.t.join-scan; color: Theme.muted; font-size: Theme.font-small; }
+            if root.status != "" : Text { text: root.status; color: Theme.muted; wrap: word-wrap; font-size: Theme.font-small; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Rectangle {
+                    width: 90px; height: 38px;
+                    TouchArea { clicked => { root.page = Page.chat; } }
+                    Text { text: root.t.cancel; color: Theme.muted; }
+                }
+                PrimaryButton {
+                    text: root.page == Page.new-room ? root.t.create : root.t.join;
+                    clicked => {
+                        if root.page == Page.new-room { root.create-room(dlg-in.text); } else { root.join(dlg-in.text); }
+                        dlg-in.text = "";
+                    }
+                }
+            }
+        }
+    }
+
+    if root.page == Page.invite || root.page == Page.participants || root.page == Page.room-info : Rectangle {
+        background: Theme.bg;
+        VerticalLayout {
+            PageHeader {
+                title: root.page == Page.invite ? root.invite-title : root.page == Page.participants ? root.t.participants : root.t.room-info;
+                back => { root.page = Page.chat; }
+            }
+            ScrollView {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 14px;
+                    alignment: start;
+                    if root.page == Page.invite : Card {
+                        HorizontalLayout { alignment: center; QrBox { qr: root.invite-qr; size: 280px; } }
+                        Text { text: root.t.invite-hint; color: Theme.muted; wrap: word-wrap; horizontal-alignment: center; }
+                        CodeField { code: root.invite-code; copy-label: root.t.copy; }
+                    }
+                    if root.page == Page.participants : Card {
+                        for p in root.people : HorizontalLayout {
+                            spacing: 12px;
+                            height: 48px;
+                            VerticalLayout { alignment: center; Avatar { letter: p.letter; colour: p.colour; size: 36px; } }
+                            Text { text: p.name + (p.is-self ? "  (" + root.t.you + ")" : ""); color: Theme.text; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                            if !p.is-self : Text { text: p.linked ? "● " + root.t.linked : "○ " + root.t.not-linked; color: p.linked ? Theme.ok : Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+                        }
+                    }
+                    if root.page == Page.room-info : Card {
+                        title: root.room-name;
+                        Text { text: root.state-line; color: Theme.text; }
+                        Text { text: root.info-role; color: Theme.muted; }
+                        Text { text: root.info-slug; color: Theme.muted; font-size: Theme.font-small; wrap: char-wrap; }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── menus ───────────────────────────────────────────────────────────
+    main-menu := PopupWindow {
+        x: 8px;
+        y: 52px;
+        width: 220px;
+        Rectangle {
+            background: Theme.panel;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 6px;
+                MenuItem { text: "＋  " + root.t.new-chat; clicked => { root.go(Page.new-room); } }
+                MenuItem { text: "⇢  " + root.t.join-chat; clicked => { root.go(Page.join); } }
+                MenuItem { text: "☺  " + root.t.friends; clicked => { root.go(Page.friends); } }
+                MenuItem { text: "⚙  " + root.t.settings; clicked => { root.go(Page.settings); } }
+            }
+        }
+    }
+
+    room-menu := PopupWindow {
+        x: root.width - 228px;
+        y: 52px;
+        width: 220px;
+        Rectangle {
+            background: Theme.panel;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.border;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: #00000050;
+            VerticalLayout {
+                padding-top: 6px;
+                padding-bottom: 6px;
+                MenuItem { text: root.t.invite; clicked => { root.open-invite(); } }
+                MenuItem { text: root.t.participants; clicked => { root.page = Page.participants; } }
+                MenuItem { text: root.t.room-info; clicked => { root.page = Page.room-info; } }
+                MenuItem { text: root.t.reset-encryption; clicked => { root.reset-encryption(); } }
+                MenuItem { text: root.t.leave; danger: true; clicked => { root.leave-room(); } }
+                MenuItem { text: root.t.delete-room; danger: true; clicked => { root.delete-room(); } }
+            }
+        }
+    }
+}
