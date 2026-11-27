@@ -1,22 +1,22 @@
- Enigma27   Tor: simulated (demo)  │  Beacon: off  │  Me
+ Enigma27   Tor: simulated (demo)  │  Your Beacon: none  │  Me
 ╭ Rooms ───────────────────╮╭ Lighthouse ──────────────────────────────────────────────────────────╮
 │● Lighthouse              ││Lighthouse · 🔒 Encrypted · 1 linked · Direct · connected             │
 │  Harbour                 ││                                                                      │
-│                          ││ Ann  04:54                                                           │
+│                          ││ Ann  06:44                                                           │
 │                          ││ Got it: “Hello Ann, the console works.” Welcome                      │
 │                          ││ aboard.                                                              │
 │                          ││                                                                      │
-│                          ││                                                           You  04:54 │
+│                          ││                                                           You  06:44 │
 │                          ││                                           Are you on the Pi already? │
 │                          ││                                                                      │
-│                          ││ Ann  04:54                                                           │
+│                          ││ Ann  06:44                                                           │
 │                          ││ Got it: “Are you on the Pi already?” Loud and                        │
 │                          ││ clear, end to end.                                                   │
 │                          ││                                                                      │
-╰──────────────────────────╯│                                                           You  04:54 │
+╰──────────────────────────╯│                                                           You  06:44 │
 ╭ Friends ─────────────────╮│                                      The console works over SSH too. │
 │  Ann  c9571e             ││                                                                      │
-│                          ││ Ann  04:54                                                           │
+│                          ││ Ann  06:44                                                           │
 │                          ││ Got it: “The console works over SSH too.” The                        │
 │                          ││ lighthouse is on. Talk soon!                                         │
 │                          ││                                                                      │
@@ -24,7 +24,7 @@
 │                          │││see you at the harbour█                                             ││
 │                          ││╰────────────────────────────────────────────────────────────────────╯│
 ╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
-┏━━━━━━━━━━━━━━━━━━━━━━━━┓ Beacon off: rooms go direct. Enable to relay and keep mail for
-┃     ⏻ ENABLE BEACON    ┃ your rooms while you are away (click or press b).
-┗━━━━━━━━━━━━━━━━━━━━━━━━┛
-[n] New room  [j] Join  [i] Invite  [f] Friends  [b] Beacon  [q] Quit  Tab move focus  Enter send
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ No Beacon yet: press b and paste the pharos-beacon: code from your Beacon's screen.              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+[n] New room  [j] Join  [i] Invite  [f] Friends  [b] Your Beacon  [:] Commands  [q] Quit  Tab focus

@@ -1,29 +1,22 @@
 //! The real backend (b2): the device's client link to its Beacon over Tor
-//! (`enigma-client`), and optionally the app's own Beacon in-process (`beacon-node`'s
-//! [`Relay`] on its own onion with the sealed SQLite queue), all state in the [`Vault`].
+//! (`enigma-client` via `pharos-tor`), all state in the [`Vault`]. The client never runs a
+//! Beacon itself (b2.md: client and Beacon are separate apps).
 //!
 //! - **Your Beacon** (`beacon`/`default`/`mine` in the vault, `{onion, name}` as the Tauri
-//!   app): the client link's home. Without one (and without Enable Beacon) nothing is
-//!   reachable and rooms fail with [`NO_BEACON`].
-//! - **Enable Beacon** (desktop): a [`Relay`] hosted on an onion of its own (Tor) and the
-//!   client attaches to it in-process ([`enigma_client::in_process`]); its queue is
-//!   `<profile>/relay.sqlite` sealed with `keys/beacon_queue`, its node key `keys/beacon_node`.
+//!   app): the client link's home. Without one nothing is reachable and rooms fail with
+//!   [`NO_BEACON`].
 //! - **Invitations** go over the client link: the redeemer's key package reaches the
 //!   inviter through the inviter's Beacon (`Client::redeem`), the inviter admits it with
 //!   `Engine::admit_invited_via` (listing the redeemer's Beacon) and answers with the
 //!   Grant (`Client::answer_redeem`).
 //!
-//! [`Net::Test`] swaps Tor for an in-memory [`Directory`] (tests, no Tor).
+//! [`Net::Test`] swaps Tor for any [`Dialer`] (tests: beacon-node's in-memory `Directory`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use beacon_node::link::{BoxRead, BoxWrite, Dialer};
-use beacon_node::queue::QueueLimits;
-use beacon_node::relay::{Directory, Relay, RelayConfig};
-use beacon_node::sqlite_queue::{QueueKey, SqliteQueue};
 use beacon_node::BoxFuture;
 use enigma_client::{Client, ClientConfig, ClientTransport, Incoming};
 use enigma_core::{Engine, Grant, Kv, LinkStatus, Mailbox, OpenedRoom, Transport};
@@ -31,20 +24,23 @@ use enigmatite::mls::Store;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 
-use crate::backend::{Backend, BeaconInfo, TorState};
+use crate::backend::{Backend, TorState};
 use crate::codes::Invitation;
 use crate::vault::Vault;
 
 /// Rooms fail with this until a Beacon is set or enabled.
-pub const NO_BEACON: &str = "no Beacon yet: set Your Beacon in Settings, or Enable Beacon";
+pub const NO_BEACON: &str = "no Beacon yet: set Your Beacon in Settings";
+
+/// Connection timeout default (s): a fresh onion circuit can take a minute.
+pub const DEFAULT_CONNECT_TIMEOUT: u64 = 60;
 
 /// How the backend reaches onions.
 #[derive(Clone)]
 pub enum Net {
     /// Tor (arti), state under the profile folder.
     Tor,
-    /// In memory (tests): every Beacon in this directory is reachable.
-    Test(Directory),
+    /// Tests: dial through this (e.g. beacon-node's in-memory `Directory`).
+    Test(Arc<dyn Dialer>),
 }
 
 /// Your Beacon, as the vault keeps it.
@@ -125,12 +121,13 @@ enum TorSlot {
     Failed(String),
 }
 
-/// Dials over Tor once it is up (waits for the bootstrap, up to the dial timeout).
-struct LazyTor(Arc<Mutex<TorSlot>>);
+/// Dials over Tor once it is up (waits for the bootstrap), giving up after the
+/// connection timeout setting.
+struct LazyTor(Arc<Mutex<TorSlot>>, Duration);
 
 impl Dialer for LazyTor {
     fn dial(&self, onion: &str) -> BoxFuture<anyhow::Result<(BoxRead, BoxWrite)>> {
-        let (slot, o) = (self.0.clone(), onion.to_string());
+        let (slot, o, timeout) = (self.0.clone(), onion.to_string(), self.1);
         Box::pin(async move {
             for _ in 0..600 {
                 let tor = match &*slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
@@ -139,46 +136,13 @@ impl Dialer for LazyTor {
                     _ => None,
                 };
                 if let Some(t) = tor {
-                    return Ok(beacon_node::link::boxed(t.dial(&o, pharos_tor::DIAL_TIMEOUT).await?));
+                    return Ok(beacon_node::link::boxed(t.dial(&o, timeout).await?));
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
             Err(anyhow::anyhow!("tor is not up"))
         })
     }
-}
-
-/// The queue key: gervasius' AEAD and a keyed blake3, from a vault secret.
-struct VaultQueueKey {
-    seal: gervasius::Dek,
-    hash: [u8; 32],
-}
-
-impl VaultQueueKey {
-    fn new(secret: &[u8; 32]) -> Self {
-        Self {
-            seal: gervasius::Dek::from_bytes(blake3::derive_key("enigma app beacon queue seal v1", secret)),
-            hash: blake3::derive_key("enigma app beacon queue hash v1", secret),
-        }
-    }
-}
-
-impl QueueKey for VaultQueueKey {
-    fn seal(&self, label: &str, plaintext: &[u8]) -> Vec<u8> {
-        gervasius::seal(&self.seal, label.as_bytes(), plaintext).unwrap_or_default()
-    }
-    fn open(&self, label: &str, sealed: &[u8]) -> anyhow::Result<Vec<u8>> {
-        gervasius::open(&self.seal, label.as_bytes(), sealed).map_err(|_| anyhow::anyhow!("a queued value under {label} did not open"))
-    }
-    fn hash(&self, kind: &str, value: &[u8]) -> [u8; 32] {
-        *blake3::Hasher::new_keyed(&self.hash).update(kind.as_bytes()).update(&[0]).update(value).finalize().as_bytes()
-    }
-}
-
-struct OwnBeacon {
-    relay: Arc<Relay>,
-    _hosted: Option<pharos_tor::Hosted>,
-    serve: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// What a redemption carries to the inviter.
@@ -260,8 +224,6 @@ pub struct RealBackend {
     tor: Arc<Mutex<TorSlot>>,
     client: Option<Client>,
     transport: SwitchTransport,
-    own: Option<OwnBeacon>,
-    beacon_starting: Option<std::sync::mpsc::Receiver<Result<(pharos_tor::Hosted, Arc<pharos_tor::Tor>), String>>>,
     rebuild: bool,
     status: Vec<String>,
     /// Redemptions we are waiting on: id → invitation.
@@ -288,8 +250,6 @@ impl RealBackend {
             tor: Arc::default(),
             client: None,
             transport: SwitchTransport::default(),
-            own: None,
-            beacon_starting: None,
             rebuild: false,
             status: vec![],
             waiting: HashMap::new(),
@@ -301,9 +261,6 @@ impl RealBackend {
         }
         if matches!(b.net, Net::Tor) && !b.vault.setting("offline").is_some_and(|v| v == "1") {
             b.start_tor();
-        }
-        if b.vault.setting("beacon_enabled").as_deref() == Some("1") && crate::core::BEACON_SUPPORTED {
-            let _ = b.set_beacon(true);
         }
         b.reconnect();
         b.rebuild = false;
@@ -320,12 +277,6 @@ impl RealBackend {
     #[must_use]
     pub fn client(&self) -> Option<&Client> {
         self.client.as_ref()
-    }
-
-    /// The in-process Beacon (tests).
-    #[must_use]
-    pub fn relay(&self) -> Option<&Arc<Relay>> {
-        self.own.as_ref().map(|o| &o.relay)
     }
 
     fn start_tor(&self) {
@@ -353,19 +304,16 @@ impl RealBackend {
         self.vault.kv_get("beacon", "default", "mine").filter(|s| !s.is_empty()).and_then(|s| serde_json::from_str(&s).ok())
     }
 
-    /// The home the client link uses now: our own Beacon when enabled, else Your Beacon.
+    /// The home the client link uses: Your Beacon.
     #[must_use]
     pub fn home(&self) -> Option<String> {
-        self.own.as_ref().map(|o| o.relay.onion().to_string()).or_else(|| self.my_beacon().map(|b| b.onion))
+        self.my_beacon().map(|b| b.onion)
     }
 
     fn dialer(&self) -> Arc<dyn Dialer> {
-        if let Some(o) = &self.own {
-            return enigma_client::in_process(&o.relay);
-        }
         match &self.net {
-            Net::Tor => Arc::new(LazyTor(self.tor.clone())),
-            Net::Test(d) => Arc::new(d.clone()),
+            Net::Tor => Arc::new(LazyTor(self.tor.clone(), Duration::from_secs(self.connect_timeout()))),
+            Net::Test(d) => d.clone(),
         }
     }
 
@@ -376,9 +324,10 @@ impl RealBackend {
             c.stop();
         }
         self.transport.set(None);
-        if let Some(home) = self.home() {
+        if let Some(home) = self.home().filter(|_| !self.offline()) {
             let mut cfg = ClientConfig::new(&home);
             cfg.redial = self.redial;
+            cfg.handshake_timeout = Duration::from_secs(self.connect_timeout());
             if matches!(self.net, Net::Test(_)) {
                 cfg.handshake_timeout = Duration::from_secs(5);
                 cfg.link.cover_every = 0;
@@ -389,6 +338,53 @@ impl RealBackend {
             self.client = Some(c);
         }
         self.rebuild = true;
+    }
+
+    /// Offline mode: no Tor, no client link (setting `offline`, as the Tauri app).
+    #[must_use]
+    pub fn offline(&self) -> bool {
+        self.vault.setting("offline").as_deref() == Some("1")
+    }
+
+    /// Go offline (Tor and the link stop) or back online.
+    pub fn set_offline(&mut self, on: bool) {
+        self.vault.set_setting("offline", if on { "1" } else { "0" });
+        if on {
+            *self.tor.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = TorSlot::Off;
+        } else if matches!(self.net, Net::Tor) {
+            self.start_tor();
+        }
+        self.reconnect();
+    }
+
+    /// Connection timeout, seconds (setting `connect_timeout_secs`; 10..=300, default 60).
+    #[must_use]
+    pub fn connect_timeout(&self) -> u64 {
+        self.vault.setting("connect_timeout_secs").and_then(|s| s.parse().ok()).unwrap_or(DEFAULT_CONNECT_TIMEOUT).clamp(10, 300)
+    }
+
+    /// Set it; the link restarts with it.
+    pub fn set_connect_timeout(&mut self, secs: u64) {
+        self.vault.set_setting("connect_timeout_secs", &secs.clamp(10, 300).to_string());
+        self.reconnect();
+    }
+
+    /// This device's discovery key for Your Beacon ("only my phones"), once Tor is up:
+    /// the text the Beacon's owner adds (`beacon allow NAME KEY`, or the Beacon app's
+    /// Phones list). Kept in the vault once known.
+    pub fn discovery_key(&mut self) -> Option<String> {
+        let onion = self.home()?;
+        let k = format!("discovery_key:{onion}");
+        if let Some(v) = self.vault.setting(&k) {
+            return Some(v);
+        }
+        let tor = match &*self.tor.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            TorSlot::Ready(t) => t.clone(),
+            _ => return None,
+        };
+        let key = tor.discovery_key(&onion).ok()?;
+        self.vault.set_setting(&k, &key);
+        Some(key)
     }
 
     /// Set (or clear) Your Beacon.
@@ -407,52 +403,8 @@ impl RealBackend {
                 None
             }
         };
-        if self.own.is_none() {
-            self.reconnect();
-        }
-        Ok(b)
-    }
-
-    fn start_relay(&mut self, onion: &str, dialer: Arc<dyn Dialer>) -> Result<Arc<Relay>, String> {
-        let node = self.vault.secret32("beacon_node")?;
-        let qk = VaultQueueKey::new(&self.vault.secret32("beacon_queue")?);
-        let q = SqliteQueue::open(&self.vault.dir().join("relay.sqlite"), qk, QueueLimits::default()).map_err(|e| e.to_string())?;
-        let mut cfg = RelayConfig::new(onion);
-        cfg.redial = self.redial;
-        if matches!(self.net, Net::Test(_)) {
-            cfg.handshake_timeout = Duration::from_secs(5);
-            cfg.link.cover_every = 0;
-        }
-        let _g = self.rt.enter();
-        Ok(Relay::start(cfg, &node, dialer, Arc::new(q)))
-    }
-
-    fn finish_tor_beacon(&mut self, hosted: pharos_tor::Hosted, tor: Arc<pharos_tor::Tor>) -> Result<(), String> {
-        let relay = self.start_relay(&hosted.onion.clone(), Arc::new(enigma_client::TorDialer(tor)))?;
-        let mut hosted = hosted;
-        let incoming = std::mem::replace(&mut hosted.incoming, tokio::sync::mpsc::channel(1).1);
-        let r2 = relay.clone();
-        let serve = self.rt.spawn(async move {
-            let mut incoming = incoming;
-            while let Some(s) = incoming.recv().await {
-                let r = r2.clone();
-                tokio::spawn(async move {
-                    let (rd, wr) = beacon_node::link::boxed(s);
-                    r.serve(rd, wr).await;
-                });
-            }
-        });
-        self.own = Some(OwnBeacon { relay, _hosted: Some(hosted), serve: Some(serve) });
         self.reconnect();
-        Ok(())
-    }
-
-    fn info(&self) -> BeaconInfo {
-        match &self.own {
-            Some(o) => BeaconInfo { enabled: true, onion: Some(o.relay.onion().to_string()), status: format!("running \u{b7} {} online", o.relay.online().len()) },
-            None if self.beacon_starting.is_some() => BeaconInfo { enabled: true, onion: None, status: "starting (Tor makes its address)\u{2026}".into() },
-            None => BeaconInfo { enabled: false, onion: None, status: "stopped".into() },
-        }
+        Ok(b)
     }
 
     fn handle(&mut self, me: &mut Engine, i: Incoming) {
@@ -578,17 +530,14 @@ impl Drop for RealBackend {
         if let Some(c) = self.client.take() {
             c.stop();
         }
-        if let Some(o) = self.own.take() {
-            o.relay.stop();
-            if let Some(s) = o.serve {
-                s.abort();
-            }
-        }
     }
 }
 
 impl Backend for RealBackend {
     fn tor_state(&self) -> TorState {
+        if self.offline() {
+            return TorState::Off;
+        }
         if let Net::Test(_) = self.net {
             return match &self.client {
                 None => TorState::Off,
@@ -602,63 +551,6 @@ impl Backend for RealBackend {
             TorSlot::Ready(_) => TorState::Ready,
             TorSlot::Failed(e) => TorState::Error(e.clone()),
         }
-    }
-    fn beacon_enabled(&self) -> bool {
-        self.own.is_some() || self.beacon_starting.is_some()
-    }
-    fn set_beacon(&mut self, on: bool) -> Result<BeaconInfo, String> {
-        if on && !self.beacon_enabled() {
-            match self.net.clone() {
-                Net::Test(dir) => {
-                    // A stable test onion per node key.
-                    let node = self.vault.secret32("beacon_node")?;
-                    let mut b = [0u8; 35];
-                    blake3::Hasher::new().update(&node).finalize_xof().fill(&mut b);
-                    let onion = format!("{}.onion", crate::codes::base32_lower(&b));
-                    let relay = self.start_relay(&onion, Arc::new(dir.clone()))?;
-                    dir.add(&relay);
-                    self.own = Some(OwnBeacon { relay, _hosted: None, serve: None });
-                    self.reconnect();
-                }
-                Net::Tor => {
-                    self.start_tor();
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let slot = self.tor.clone();
-                    self.rt.spawn(async move {
-                        let r = async {
-                            let tor = loop {
-                                match &*slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
-                                    TorSlot::Ready(t) => break Ok(t.clone()),
-                                    TorSlot::Failed(e) => break Err(e.clone()),
-                                    _ => {}
-                                }
-                                tokio::time::sleep(Duration::from_millis(200)).await;
-                            }?;
-                            let h = tor.host("enigma-beacon").await.map_err(|e| e.to_string())?;
-                            Ok((h, tor))
-                        }
-                        .await;
-                        let _ = tx.send(r);
-                    });
-                    self.beacon_starting = Some(rx);
-                }
-            }
-            self.vault.set_setting("beacon_enabled", "1");
-        } else if !on {
-            self.beacon_starting = None;
-            if let Some(o) = self.own.take() {
-                o.relay.stop();
-                if let Some(s) = o.serve {
-                    s.abort();
-                }
-                if let Net::Test(d) = &self.net {
-                    d.remove(o.relay.onion());
-                }
-                self.reconnect();
-            }
-            self.vault.set_setting("beacon_enabled", "0");
-        }
-        Ok(self.info())
     }
     fn transport(&self) -> Arc<dyn Transport + Send + Sync> {
         Arc::new(self.transport.clone())
@@ -681,14 +573,26 @@ impl Backend for RealBackend {
     fn take_status(&mut self) -> Vec<String> {
         std::mem::take(&mut self.status)
     }
-    fn beacon_info(&self) -> BeaconInfo {
-        self.info()
-    }
     fn my_beacon(&self) -> Option<MyBeacon> {
         RealBackend::my_beacon(self)
     }
     fn set_my_beacon(&mut self, code: Option<&str>) -> Result<Option<MyBeacon>, String> {
         RealBackend::set_my_beacon(self, code)
+    }
+    fn offline(&self) -> bool {
+        RealBackend::offline(self)
+    }
+    fn set_offline(&mut self, on: bool) {
+        RealBackend::set_offline(self, on);
+    }
+    fn connect_timeout(&self) -> u64 {
+        RealBackend::connect_timeout(self)
+    }
+    fn set_connect_timeout(&mut self, secs: u64) {
+        RealBackend::set_connect_timeout(self, secs);
+    }
+    fn discovery_key(&mut self) -> Option<String> {
+        RealBackend::discovery_key(self)
     }
     fn make_invite(&mut self, me: &Engine, ttl: u64, friend: Option<(&str, &str)>) -> Result<Invitation, String> {
         RealBackend::make_invite(self, me, ttl, friend).map(|(_, i)| i)
@@ -700,15 +604,6 @@ impl Backend for RealBackend {
         RealBackend::revoke_invite(self, id);
     }
     fn poll(&mut self, me: &mut Engine) {
-        if let Some(rx) = &self.beacon_starting {
-            if let Ok(r) = rx.try_recv() {
-                self.beacon_starting = None;
-                match r.and_then(|(h, t)| self.finish_tor_beacon(h, t)) {
-                    Ok(()) => self.status.push("Beacon on: share its address with friends.".into()),
-                    Err(e) => self.status.push(format!("Beacon: {e}")),
-                }
-            }
-        }
         let rest = self.client.as_ref().map(|c| c.pump(me)).unwrap_or_default();
         for i in rest {
             self.handle(me, i);
@@ -725,6 +620,9 @@ impl Backend for RealBackend {
         if inv.expires > 0 && now_secs() >= inv.expires {
             return Err("this invitation has expired".into());
         }
+        if !inv.for_device.is_empty() && inv.for_device != me.device_id() {
+            return Err("this invitation is for someone else".into());
+        }
         let kp = me.invite_key_package(&scratch(inv))?;
         let rid = rand_id();
         let req = RedeemReq { invite: inv.id.clone(), room: inv.room.clone(), kp };
@@ -733,10 +631,4 @@ impl Backend for RealBackend {
         self.status.push(format!("Asked to join \u{201c}{}\u{201d}: waiting for the inviter\u{2026}", inv.name));
         Ok(())
     }
-}
-
-/// Where the in-process Beacon's queue lives (docs).
-#[must_use]
-pub fn relay_db(v: &Vault) -> PathBuf {
-    v.dir().join("relay.sqlite")
 }

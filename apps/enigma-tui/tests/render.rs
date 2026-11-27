@@ -16,7 +16,7 @@ fn main_screen_shows_the_key_texts() {
     for s in [
         "Enigma27",
         "Tor: simulated",
-        "Beacon: off",
+        "Your Beacon: none",
         "Rooms",
         "Lighthouse",
         "Harbour",
@@ -29,14 +29,15 @@ fn main_screen_shows_the_key_texts() {
         "Hello Ann, the console works.",
         "Message",
         "draft message",
-        "\u{23fb} ENABLE BEACON",
+        "No Beacon yet",
         "[n] New room",
         "[j] Join",
         "[i] Invite",
         "[f] Friends",
-        "[b] Beacon",
+        "[b] Your Beacon",
+        "[:] Commands",
         "[q] Quit",
-        "Tab move focus",
+        "Tab focus",
     ] {
         assert!(t.contains(s), "missing {s:?} in\n{t}");
     }
@@ -44,18 +45,15 @@ fn main_screen_shows_the_key_texts() {
     // own message right-aligned: it ends near the right border of the chat
     let own = t.lines().find(|l| l.contains("Hello Ann, the console works.")).unwrap();
     assert!(own.trim_end().chars().count() > 90, "{own}");
-    // the button sits at the bottom, framed
-    let btn = app.beacon_button.get();
-    assert_eq!((btn.y, btn.height), (26, 3));
 }
 
 #[test]
-fn beacon_on_shows_disable_and_the_address() {
+fn your_beacon_shows_in_the_top_bar_and_the_footer() {
     let mut app = demo();
-    app.toggle_beacon();
+    let onion = format!("{}.onion", enigma_tui::codes::base32_lower(&[5u8; 35]));
+    assert!(app.set_my_beacon(Some(&onion)));
     let t = to_text(&render(&app, 100, 30));
-    let onion = app.beacon.onion.clone().unwrap();
-    for s in ["\u{23fb} DISABLE BEACON", "Beacon: on", "Via Beacon", onion.as_str()] {
+    for s in ["Via Beacon", onion.as_str(), "Your Beacon: "] {
         assert!(t.contains(s), "missing {s:?} in\n{t}");
     }
 }
@@ -71,4 +69,8 @@ fn dialogs_render() {
     let t = to_text(&render(&app, 100, 30));
     assert!(t.contains("enigma27-friend:1:") && t.contains("check code"), "{t}");
     assert!(to_html(&render(&app, 100, 30), "x").contains("<div class=\"r\">"));
+    app.dialog = Some(Dialog::Beacon(String::new()));
+    assert!(to_text(&render(&app, 100, 30)).contains("pharos-beacon:"));
+    app.command(":help");
+    assert!(to_text(&render(&app, 110, 30)).contains(":invite"));
 }

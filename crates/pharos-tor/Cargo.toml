@@ -37,3 +37,5 @@ pharos-rendezvous = { path = "../pharos-rendezvous" }
 # Hosting an onion in restricted discovery mode (client authorisation): only
 # Beacon turns it on, and only when its config asks for it (8.A3).
 restricted-discovery = ["arti-client/restricted-discovery", "tor-hsservice/restricted-discovery", "dep:tor-config-path"]
+# A client's discovery key for a restricted Beacon ("only my phones"): the Enigma client.
+client-discovery = ["arti-client/keymgr"]

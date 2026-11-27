@@ -1,7 +1,7 @@
 [package]
 name = "enigma-tui"
 version = "0.1.0"
-description = "Enigma in the console (ratatui): rooms, chat, invitations, Friends and the Enable Beacon button, on enigma-core."
+description = "Enigma in the console (ratatui): rooms, chat, invitations, Friends, Your Beacon, the lock gate, on enigma-core."
 authors = ["SpectrumAI"]
 edition = "2021"
 rust-version.workspace = true
@@ -17,6 +17,10 @@ enigma-core = { path = "../../crates/enigma-core" }
 enigma-app = { path = "../../crates/enigma-app" }
 ratatui = "0.30"
 crossterm = "0.29"
+
+[dev-dependencies]
+# Tests: an in-memory Beacon directory instead of Tor.
+beacon-node = { path = "../../crates/beacon-node" }
 
 [lints.rust]
 unsafe_code = "forbid"

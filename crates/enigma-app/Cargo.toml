@@ -1,7 +1,7 @@
 [package]
 name = "enigma-app"
 version = "0.1.0"
-description = "Enigma's UI-agnostic app layer: state, actions, backend trait (demo + real: vault, client link over Tor, in-process Beacon), codes, avatars, texts. Shared by enigma-slint and enigma-tui."
+description = "Enigma's UI-agnostic app layer: state, actions, backend trait (demo + real: vault, client link over Tor to the user's Beacon), codes, avatars, texts. Shared by enigma-slint and enigma-tui."
 authors = ["SpectrumAI"]
 edition = "2021"
 rust-version.workspace = true
@@ -18,8 +18,9 @@ serde_json = "1"
 rand_core = { version = "0.6", features = ["getrandom"] }
 enigmatite = { path = "../enigmatite" }
 enigma-client = { path = "../enigma-client" }
-beacon-node = { path = "../beacon-node", features = ["sqlite"] }
-pharos-tor = { path = "../pharos-tor" }
+# The client link's Dialer types only (the client never hosts a Beacon).
+beacon-node = { path = "../beacon-node" }
+pharos-tor = { path = "../pharos-tor", features = ["client-discovery"] }
 pharos-id = { path = "../pharos-id" }
 protasius = { path = "../protasius" }
 gervasius = { path = "../gervasius" }
@@ -27,6 +28,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 blake3 = "1"
 hex = "0.4"
 anyhow = "1"
+# Pictures to send (scaled, re-encoded: no EXIF) and QR codes read from image files.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rqrr = "0.9"
 
 [lints.rust]
 unsafe_code = "forbid"

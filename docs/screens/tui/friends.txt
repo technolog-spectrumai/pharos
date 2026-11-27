@@ -1,17 +1,17 @@
- Enigma27   Tor: simulated (demo)  │  Beacon: on  │  Me
+ Enigma27   Tor: simulated (demo)  │  Your Beacon: aucqkbif  │  Me
 ╭ Rooms ───────────────────╮╭ Lighthouse ──────────────────────────────────────────────────────────╮
 │● Lighthouse              ││Lighthouse · 🔒 Encrypted · 1 linked · Via Beacon · connected         │
 │  Harbour                 ││                                                                      │
-│                          ││ Ann  04:54                                                           │
+│                          ││ Ann  06:44                                                           │
 │                          ││ Got it: “Hello Ann, the console works.” Welcome                      │
 │                          ││ aboard.                                                              │
 │                          ││                                                                      │
-│                          ││                                                           You  04:54 │
+│                          ││                                                           You  06:44 │
 │ ╔ Friends ═════════════════════════════════════════════════════════════════════════════════════╗ │
 │ ║ My device code (share it; it says who you are, nothing more):                                ║ │
-│ ║ enigma27-friend:1:cde678725a43bbe96cea8883002f5ffc685b4c3ac3ba6b625894d8c5091ea607:TWU       ║ │
+│ ║ enigma27-friend:1:bc685b1eb142115842eff216a2aa229c3dcf3a0132c0456669ff2d7224dde90d:TWU       ║ │
 │ ║                                                                                              ║ │
-│ ║ Ann  check code 1701 4432 7467                                                               ║ │
+│ ║ Ann  check code 1936 5005 1653                                                               ║ │
 │ ║                                                                                              ║ │
 ╰─║ Add a friend: paste their code (enigma27-friend:1:...)                                       ║ │
 ╭ ║ > █                                                                                          ║ │
@@ -24,7 +24,7 @@
 │                          │││see you at the harbour                                              ││
 │                          ││╰────────────────────────────────────────────────────────────────────╯│
 ╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
-┏━━━━━━━━━━━━━━━━━━━━━━━━┓ Beacon: running (simulated)
-┃    ⏻ DISABLE BEACON    ┃ Address: opb67v3yg2gf2ui77v3hm7ckheccl6pxlxqysv5ih5wdbvsw6imz75a3.onion
-┗━━━━━━━━━━━━━━━━━━━━━━━━┛ Beacon on: share its address with friends.
-[n] New room  [j] Join  [i] Invite  [f] Friends  [b] Beacon  [q] Quit  Tab move focus  Enter send
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Your Beacon: aucqkbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbifaucqkbif.onion  linked              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+[n] New room  [j] Join  [i] Invite  [f] Friends  [b] Your Beacon  [:] Commands  [q] Quit  Tab focus

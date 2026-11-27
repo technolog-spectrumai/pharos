@@ -1,4 +1,4 @@
-//! Writes the demo screens (beacon off / on, plus the invite and friends dialogs) to
+//! Writes the demo screens (no Beacon / Your Beacon set, the Your Beacon, commands, invite and friends dialogs) to
 //! `docs/screens/tui/*.txt` and `*.html`; `scripts/screenshot.js` turns the HTML into PNGs.
 //!
 //! cargo run -p enigma-tui --example screens && node apps/enigma-tui/scripts/screenshot.js
@@ -24,9 +24,18 @@ fn main() {
         std::fs::write(out.join(format!("{name}.html")), to_html(&b, &format!("enigma-tui --demo \u{2014} {name}"))).unwrap();
         println!("{}", out.join(name).display());
     };
-    save("main-beacon-off", &app, 30);
-    app.toggle_beacon();
-    save("main-beacon-on", &app, 30);
+    for old in ["main-beacon-off", "main-beacon-on"] {
+        let _ = std::fs::remove_file(out.join(format!("{old}.txt")));
+        let _ = std::fs::remove_file(out.join(format!("{old}.html")));
+    }
+    save("main-no-beacon", &app, 30);
+    let onion = format!("{}.onion", enigma_tui::codes::base32_lower(&[5u8; 35]));
+    app.set_my_beacon(Some(&onion));
+    save("main-your-beacon", &app, 30);
+    app.dialog = Some(Dialog::Beacon(String::new()));
+    save("your-beacon", &app, 30);
+    app.command(":help");
+    save("commands", &app, 30);
     app.focus = Focus::Rooms;
     app.dialog = Some(Dialog::Invite(app.invitation_code().unwrap()));
     save("invite", &app, 36);

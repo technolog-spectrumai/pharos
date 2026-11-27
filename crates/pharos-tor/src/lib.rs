@@ -115,6 +115,20 @@ impl Tor {
         finish(svc, rend).await
     }
 
+    /// This client's discovery key for `onion` (a Beacon in restricted discovery mode,
+    /// "only my phones"), as `descriptor:x25519:<base32>`, the text its owner adds with
+    /// `beacon allow NAME KEY`. Made once and kept in arti's keystore, which uses it
+    /// whenever it dials that onion; asking again gives the same key.
+    #[cfg(feature = "client-discovery")]
+    pub fn discovery_key(&self, onion: &str) -> Result<String> {
+        let hsid: arti_client::HsId = onion.parse().map_err(|e| anyhow!("{onion}: {e}"))?;
+        let key = match self.client.get_service_discovery_key(hsid).map_err(|e| anyhow!("{e}"))? {
+            Some(k) => k,
+            None => self.client.generate_service_discovery_key(arti_client::KeystoreSelector::Primary, hsid).map_err(|e| anyhow!("making the key: {e}"))?,
+        };
+        Ok(key.to_string())
+    }
+
     /// Dial `onion` on [`PORT`], giving up after `timeout`.
     pub async fn dial(&self, onion: &str, timeout: Duration) -> Result<DataStream> {
         tokio::time::timeout(timeout, self.client.connect((onion, PORT)))

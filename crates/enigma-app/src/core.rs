@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use enigma_core::{Engine, Event, LinkStatus, Message, MessageKind, MlsStatus, Participant};
 
-use crate::backend::{build_engine, Backend, BeaconInfo, InviteRecord, MyBeacon, TorState};
+use crate::backend::{build_engine, Backend, InviteRecord, MyBeacon, TorState};
 use crate::vault::Vault;
 
 fn load_friends(v: &Vault) -> Vec<Friend> {
@@ -33,10 +33,6 @@ pub struct Friend {
     pub name: String,
 }
 
-/// Whether this build can run the in-process Beacon: Linux only (user decision 2026-11-27);
-/// Windows, macOS, Android and iOS are clients only.
-pub const BEACON_SUPPORTED: bool = cfg!(all(target_os = "linux", not(target_os = "android")));
-
 /// The app.
 pub struct Core {
     /// The room engine.
@@ -47,8 +43,6 @@ pub struct Core {
     pub room_sel: usize,
     /// Friends (memory only).
     pub friends: Vec<Friend>,
-    /// The Beacon, as last set.
-    pub beacon: BeaconInfo,
     /// One status line (last error or info).
     pub status: String,
     /// Unread counts per room slug.
@@ -57,6 +51,14 @@ pub struct Core {
     pub user_name: String,
     /// UI language.
     pub lang: Lang,
+    /// File transfers in the current room.
+    pub files: crate::files::Files,
+    /// Notifications to show (new messages while the window is away): (title, body).
+    pub notes: Vec<(String, String)>,
+    /// Settings when there is no vault (demo).
+    pub mem_settings: HashMap<String, String>,
+    /// Whether the timeline is on screen (as last told by `tick`).
+    pub viewing: bool,
 }
 
 impl Core {
@@ -73,17 +75,19 @@ impl Core {
                 lang = Lang::from_code(&l);
             }
         }
-        let beacon = backend.beacon_info();
         let mut c = Self {
             engine,
             backend,
             room_sel: 0,
             friends,
-            beacon,
             status: String::new(),
             unread: HashMap::new(),
             user_name: name.into(),
             lang,
+            files: crate::files::Files::new(crate::actions::downloads_dir()),
+            notes: vec![],
+            mem_settings: HashMap::new(),
+            viewing: true,
         };
         let _ = c.engine.drain_events();
         c.sync_selection();
@@ -107,15 +111,20 @@ impl Core {
     /// Time passes (~250 ms): engine timers, incoming frames, events. `viewing`: the current
     /// room's timeline is on screen (else new messages count as unread).
     pub fn tick(&mut self, viewing: bool) {
+        self.viewing = viewing;
         if self.backend.take_rebuild() {
             self.rebuild();
         }
         self.engine.tick();
+        for (k, p) in self.files.pump() {
+            if let Err(e) = self.engine.send_sync(k, p) {
+                self.status = format!("Files: {e}");
+            }
+        }
         self.backend.poll(&mut self.engine);
         for s in self.backend.take_status() {
             self.status = s;
         }
-        self.beacon = self.backend.beacon_info();
         self.drain(viewing);
     }
 
@@ -182,6 +191,20 @@ impl Core {
                 Event::MessageAdded(m) if !m.is_self && !viewing => {
                     if let Some(r) = self.engine.current_room() {
                         *self.unread.entry(r.to_string()).or_default() += 1;
+                    }
+                    if m.kind != MessageKind::System && m.kind != MessageKind::Placeholder && self.notifications_on() {
+                        let body = match m.kind {
+                            MessageKind::Image => "\u{1f5bc} picture".to_string(),
+                            MessageKind::Voice => "\u{1f3a4} voice message".to_string(),
+                            _ => m.content.chars().take(120).collect(),
+                        };
+                        let room = self.room_name().unwrap_or_default();
+                        self.notes.push((format!("{} \u{b7} {room}", m.user), body));
+                    }
+                }
+                Event::Sync { kind, payload, sender } if kind.starts_with("file_") => {
+                    if let Some(s) = self.files.on_sync(&kind, &payload, &sender) {
+                        self.status = s;
                     }
                 }
                 Event::Error(e) => self.status = e,
@@ -284,29 +307,6 @@ impl Core {
         !matches!(self.backend.tor_state(), TorState::Off | TorState::Error(_))
     }
 
-    /// Flip the Beacon.
-    pub fn toggle_beacon(&mut self) {
-        self.set_beacon(!self.beacon.enabled);
-    }
-
-    /// Start or stop the Beacon.
-    pub fn set_beacon(&mut self, on: bool) {
-        if !BEACON_SUPPORTED && on {
-            self.status = self.tr("beacon.clientOnly");
-            return;
-        }
-        match self.backend.set_beacon(on) {
-            Ok(info) => {
-                self.status = match &info.onion {
-                    Some(_) => "Beacon on: share its address with friends.".into(),
-                    None => "Beacon off.".into(),
-                };
-                self.beacon = info;
-            }
-            Err(e) => self.status = format!("Beacon: {e}"),
-        }
-    }
-
     /// My Friends code.
     #[must_use]
     pub fn my_friend_code(&self) -> String {
@@ -354,7 +354,7 @@ impl Core {
         }
         self.engine.send_text(t);
         self.backend.poll(&mut self.engine);
-        self.drain(true);
+        self.drain(self.viewing);
         true
     }
 
@@ -386,7 +386,7 @@ impl Core {
                 false
             }
         };
-        self.drain(true);
+        self.drain(self.viewing);
         ok
     }
 
@@ -409,7 +409,7 @@ impl Core {
                 false
             }
         };
-        self.drain(true);
+        self.drain(self.viewing);
         ok
     }
 
@@ -454,14 +454,14 @@ impl Core {
         }
         self.engine.set_user_name(n);
         self.backend.poll(&mut self.engine);
-        self.drain(true);
+        self.drain(self.viewing);
     }
 
     /// Leave the current room (it stays in the list).
     pub fn leave(&mut self) {
         self.engine.leave();
         self.backend.poll(&mut self.engine);
-        self.drain(true);
+        self.drain(self.viewing);
     }
 
     /// Delete the current room.
@@ -471,7 +471,7 @@ impl Core {
             self.backend.poll(&mut self.engine);
             self.unread.remove(&slug);
             self.room_sel = 0;
-            self.drain(true);
+            self.drain(self.viewing);
         }
     }
 
@@ -479,7 +479,7 @@ impl Core {
     pub fn reset_encryption(&mut self) {
         self.engine.force_reset(true);
         self.backend.poll(&mut self.engine);
-        self.drain(true);
+        self.drain(self.viewing);
     }
 
     /// Human rows only: (mine, text).
@@ -524,15 +524,16 @@ mod tests {
     }
 
     #[test]
-    fn beacon_routes_rooms_via_beacon_and_polish_texts() {
+    fn your_beacon_routes_rooms_via_beacon_and_polish_texts() {
         let mut c = demo();
-        c.toggle_beacon();
-        assert!(c.beacon.enabled);
-        assert!(c.beacon.onion.as_deref().is_some_and(|o| o.ends_with(".onion") && o.len() == 62));
+        let onion = format!("{}.onion", codes::base32_lower(&[7u8; 35]));
+        assert!(c.set_my_beacon(Some(&onion)));
+        assert_eq!(c.my_beacon().unwrap().onion, onion);
+        assert!(!c.set_my_beacon(Some("nope")));
         c.lang = Lang::Pl;
         assert_eq!(c.state_line(), "\u{1f512} Szyfrowany \u{b7} Połączono z 1 \u{b7} Przez Beacon");
-        c.set_beacon(false);
-        assert!(!c.beacon.enabled);
+        assert!(c.set_my_beacon(None));
+        assert!(c.my_beacon().is_none());
     }
 
     #[test]

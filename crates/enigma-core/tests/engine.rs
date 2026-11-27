@@ -606,6 +606,19 @@ fn images_voice_and_file_signalling_reach_the_others() {
 }
 
 #[test]
+fn a_member_who_sent_before_a_restart_is_still_heard_after_it() {
+    let (mut n, a, b) = pair();
+    n.e(b).send_text("before");
+    n.pump();
+    n.restart(b);
+    n.e(b).open_room(&room());
+    n.pump();
+    n.e(b).send_text("after");
+    n.pump();
+    assert_eq!(n.texts(a), vec!["before", "after"]);
+}
+
+#[test]
 fn the_timeline_survives_a_restart_without_duplicates() {
     let (mut n, a, b) = pair();
     n.e(a).send_text("one");

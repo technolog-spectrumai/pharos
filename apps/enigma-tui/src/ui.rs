@@ -1,5 +1,4 @@
-//! Rendering only (ratatui widgets). Reads [`App`]; the one thing it writes back is where the
-//! Beacon button landed, for mouse clicks.
+//! Rendering only (ratatui widgets). Reads [`App`].
 
 use enigma_core::MessageKind;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
@@ -38,14 +37,14 @@ pub fn draw(f: &mut Frame, app: &App) {
     let [left, right] = Layout::horizontal([Constraint::Length(28), Constraint::Min(30)]).areas(mid);
     draw_left(f, app, left);
     draw_chat(f, app, right);
-    draw_beacon(f, app, bottom);
-    let keys = [("n", "New room"), ("j", "Join"), ("i", "Invite"), ("f", "Friends"), ("b", "Beacon"), ("q", "Quit")];
+    draw_bottom(f, app, bottom);
+    let keys = [("n", "New room"), ("j", "Join"), ("i", "Invite"), ("f", "Friends"), ("b", "Your Beacon"), (":", "Commands"), ("q", "Quit")];
     let mut spans = vec![];
     for (k, what) in keys {
         spans.push(Span::styled(format!("[{k}]"), Style::new().fg(ACCENT).bold()));
         spans.push(Span::raw(format!(" {what}  ")));
     }
-    spans.push(Span::styled("Tab move focus  Enter send", Style::new().fg(DIM)));
+    spans.push(Span::styled("Tab focus", Style::new().fg(DIM)));
     f.render_widget(Paragraph::new(Line::from(spans)), help);
     if let Some(d) = &app.dialog {
         draw_dialog(f, app, d);
@@ -54,12 +53,15 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 fn draw_top(f: &mut Frame, app: &App, area: Rect) {
     let tor = app.backend.tor_state().label();
-    let beacon = if app.beacon.enabled { Span::styled("on", Style::new().fg(OK).bold()) } else { Span::styled("off", Style::new().fg(DIM)) };
+    let beacon = match app.my_beacon() {
+        Some(b) => Span::styled(if b.name.is_empty() { b.onion[..8.min(b.onion.len())].to_string() } else { b.name }, Style::new().fg(OK).bold()),
+        None => Span::styled("none", Style::new().fg(DIM)),
+    };
     let line = Line::from(vec![
         Span::styled(" Enigma27 ", Style::new().fg(Color::Black).bg(ACCENT).bold()),
         Span::raw("  Tor: "),
         Span::styled(tor, Style::new().fg(Color::White)),
-        Span::raw("  \u{2502}  Beacon: "),
+        Span::raw("  \u{2502}  Your Beacon: "),
         beacon,
         Span::raw("  \u{2502}  "),
         Span::styled(app.user_name.clone(), Style::new().fg(SELF)),
@@ -189,30 +191,22 @@ fn draw_chat(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(Line::from(text)).block(pane("Message", focused)), input);
 }
 
-fn draw_beacon(f: &mut Frame, app: &App, area: Rect) {
-    let [btn, info] = Layout::horizontal([Constraint::Length(26), Constraint::Min(10)]).areas(area);
-    let (fg, border) = if app.beacon.enabled { (OK, OK) } else { (ACCENT, ACCENT) };
-    let block = Block::bordered().border_type(BorderType::Thick).border_style(Style::new().fg(border));
-    f.render_widget(
-        Paragraph::new(Line::styled(app.beacon_label(), Style::new().fg(fg).add_modifier(Modifier::BOLD))).alignment(Alignment::Center).block(block),
-        btn,
-    );
-    app.beacon_button.set(btn);
+fn draw_bottom(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::bordered().border_type(BorderType::Rounded).border_style(Style::new().fg(DIM));
     let mut lines = vec![];
-    if app.beacon.enabled {
-        lines.push(Line::from(vec![Span::styled(" Beacon: ", Style::new().fg(DIM)), Span::styled(app.beacon.status.clone(), Style::new().fg(OK))]));
-        lines.push(Line::from(vec![
-            Span::styled(" Address: ", Style::new().fg(DIM)),
-            Span::raw(app.beacon.onion.clone().unwrap_or_default()),
-        ]));
-    } else {
-        lines.push(Line::styled(" Beacon off: rooms go direct. Enable to relay and keep mail for", Style::new().fg(DIM)));
-        lines.push(Line::styled(" your rooms while you are away (click or press b).", Style::new().fg(DIM)));
+    match app.my_beacon() {
+        Some(b) => lines.push(Line::from(vec![
+            Span::styled(" Your Beacon: ", Style::new().fg(DIM)),
+            Span::styled(if b.name.is_empty() { b.onion.clone() } else { format!("{} ({})", b.name, b.onion) }, Style::new().fg(OK)),
+            Span::styled(if app.connected() { "  linked" } else { "  connecting\u{2026}" }, Style::new().fg(DIM)),
+        ])),
+        None => lines.push(Line::styled(" No Beacon yet: press b and paste the pharos-beacon: code from your Beacon's screen.", Style::new().fg(ACCENT))),
     }
-    if !app.status.is_empty() {
-        lines.push(Line::styled(format!(" {}", app.status), Style::new().fg(Color::White)));
+    let status = app.banner().unwrap_or_else(|| app.status.clone());
+    if !status.is_empty() {
+        lines.push(Line::styled(format!(" {status}"), Style::new().fg(Color::White)));
     }
-    f.render_widget(Paragraph::new(lines), info);
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
@@ -279,6 +273,23 @@ fn draw_dialog(f: &mut Frame, app: &App, d: &Dialog) {
             l.push(Line::styled("Read the check code out loud: the same on both screens = no swap.  Esc close", Style::new().fg(DIM)));
             let h = l.len() as u16 + 4;
             ("Friends", l, 96, h)
+        }
+        Dialog::Beacon(t) => {
+            let mut l = vec![Line::styled("Your Beacon carries your rooms' sealed messages over Tor and keeps them while you are away.", Style::new().fg(DIM)), Line::raw("")];
+            l.extend(input_line("Paste the pharos-beacon: code from the Beacon's screen (empty: remove):", t));
+            l.push(Line::raw(""));
+            l.push(Line::styled("Enter set  Esc cancel   (:key shows this device's discovery key)", Style::new().fg(DIM)));
+            ("Your Beacon", l, 96, 9)
+        }
+        Dialog::Command(t) => {
+            let l = vec![Line::from(vec![Span::raw(format!(":{t}")), Span::styled("\u{2588}", Style::new().fg(ACCENT))]), Line::styled(":help lists the commands.  Enter run  Esc cancel", Style::new().fg(DIM))];
+            ("Command", l, 80, 4)
+        }
+        Dialog::Info(title, v) => {
+            let mut l: Vec<Line> = v.iter().map(|x| Line::raw(x.clone())).collect();
+            l.push(Line::styled("Esc close", Style::new().fg(DIM)));
+            let h = (l.len() as u16 + 2).min(area.height);
+            (title.as_str(), l, 100, h)
         }
     };
     let r = centered(area, w, h);

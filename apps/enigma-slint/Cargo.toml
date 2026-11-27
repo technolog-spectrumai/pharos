@@ -23,6 +23,13 @@ path = "src/main.rs"
 enigma-app = { path = "../../crates/enigma-app" }
 enigma-core = { path = "../../crates/enigma-core" }
 slint = { version = "1.19", features = ["software-renderer-systemfonts"] }
+# Voice notes: WAV everywhere; recording / playback with cpal on desktop.
+hound = "3"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+cpal = "0.15"
+# Desktop notifications for new messages while the window is away.
+notify-rust = "4"
 
 [target.'cfg(target_os = "android")'.dependencies]
 slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-android-activity-06", "renderer-femtovg", "renderer-software"] }
@@ -32,6 +39,8 @@ slint-build = "1.19"
 
 [dev-dependencies]
 png = "0.17"
+# Tests and screenshots: an in-memory Beacon directory instead of Tor.
+beacon-node = { path = "../../crates/beacon-node" }
 
 [package.metadata.android]
 package = "com.spectrumaipl.enigma27.slint"

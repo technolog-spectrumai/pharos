@@ -944,12 +944,10 @@ dependencies = [
  "futures-lite",
  "hex",
  "postcard",
- "rusqlite",
  "rustls",
  "safelog",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tor-cell",
  "tor-config",
@@ -2954,11 +2952,13 @@ dependencies = [
  "enigmatite",
  "gervasius",
  "hex",
+ "image",
  "pharos-id",
  "pharos-tor",
  "protasius",
  "qrcodegen",
  "rand_core 0.6.4",
+ "rqrr",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3014,8 +3014,12 @@ dependencies = [
 name = "enigma-slint"
 version = "0.1.0"
 dependencies = [
+ "beacon-node",
+ "cpal",
  "enigma-app",
  "enigma-core",
+ "hound",
+ "notify-rust",
  "png 0.17.16",
  "slint",
  "slint-build",
@@ -3025,6 +3029,7 @@ dependencies = [
 name = "enigma-tui"
 version = "0.1.0"
 dependencies = [
+ "beacon-node",
  "crossterm",
  "enigma-app",
  "enigma-core",

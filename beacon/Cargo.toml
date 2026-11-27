@@ -17,7 +17,7 @@ path = "src/main.rs"
 pharos-tor = { path = "../crates/pharos-tor", features = ["restricted-discovery"] }
 pharos-seal = { path = "../crates/pharos-seal" }
 # Stage b2: client links in, the Beacon mesh, offline queues.
-beacon-node = { path = "../crates/beacon-node", features = ["sqlite"] }
+beacon-node = { path = "../crates/beacon-node" }
 # Beacon code its page shows (pharos-beacon:…).
 pharos-id = { path = "../crates/pharos-id" }
 # Its page: the QR code (encoder only) as a PNG.

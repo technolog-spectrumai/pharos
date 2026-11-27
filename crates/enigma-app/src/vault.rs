@@ -17,8 +17,6 @@
 //! - kv `beacon`/`default`/`mine`: Your Beacon (`stores/beacon.ts`, same JSON `{onion, name}`);
 //! - kv `p2p:settings`/`default`/*: settings (`idle_lock_mins` as in Tauri; the Slint app
 //!   adds `lock_on_hide`, `lang`, `theme`, ...);
-//! - internal `keys/beacon_node`, `keys/beacon_queue`: the in-process Beacon's node seed and
-//!   queue key (new; the Tauri app had no Beacon).
 //!
 //! The PIN is memory only (as in Tauri): the passphrase sealed under a PIN-derived key,
 //! dropped after [`PIN_MAX_FAILURES`] wrong PINs, on profile switch and on restart.
@@ -26,7 +24,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use protasius::{KdfParams, MigrationPlan, Protasius, ProtasiusError, UnlockOutcome};
+pub use protasius::KdfParams;
+use protasius::{ MigrationPlan, Protasius, ProtasiusError, UnlockOutcome};
 use rand_core::{OsRng, RngCore};
 
 /// Wrong PINs before the PIN is forgotten.

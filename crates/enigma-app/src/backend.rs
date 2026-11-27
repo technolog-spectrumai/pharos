@@ -45,28 +45,10 @@ impl TorState {
     }
 }
 
-/// What enabling the Beacon gave.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BeaconInfo {
-    /// Running.
-    pub enabled: bool,
-    /// Its onion address, when running.
-    pub onion: Option<String>,
-    /// A short status ("running", "stopped", ...).
-    pub status: String,
-}
-
 /// The app's outside.
 pub trait Backend {
     /// Tor's state.
     fn tor_state(&self) -> TorState;
-    /// Whether the in-process Beacon runs.
-    fn beacon_enabled(&self) -> bool;
-    /// Start or stop the in-process Beacon.
-    ///
-    /// # Errors
-    /// Why it could not.
-    fn set_beacon(&mut self, on: bool) -> Result<BeaconInfo, String>;
     /// The transport the engine uses.
     fn transport(&self) -> Arc<dyn Transport + Send + Sync>;
     /// The Beacon mailbox, if attached.
@@ -106,13 +88,9 @@ pub trait Backend {
     fn take_rebuild(&mut self) -> bool {
         false
     }
-    /// Status lines since the last call (redemptions, Beacon start, refusals).
+    /// Status lines since the last call (redemptions, refusals).
     fn take_status(&mut self) -> Vec<String> {
         vec![]
-    }
-    /// The Beacon now.
-    fn beacon_info(&self) -> BeaconInfo {
-        BeaconInfo { enabled: self.beacon_enabled(), onion: None, status: if self.beacon_enabled() { "running".into() } else { "stopped".into() } }
     }
     /// Your Beacon (the client link's home), when set.
     fn my_beacon(&self) -> Option<MyBeacon> {
@@ -130,10 +108,36 @@ pub trait Backend {
     /// # Errors
     /// No room or no Beacon.
     fn make_invite(&mut self, me: &Engine, ttl: u64, friend: Option<(&str, &str)>) -> Result<Invitation, String> {
-        let _ = (ttl, friend);
         let room = me.current_room().ok_or("no room")?.to_string();
         let name = me.rooms().iter().find(|r| r.room == room).map(|r| r.name.clone()).unwrap_or_default();
-        Ok(Invitation { name, room, onion: me.my_onion().to_string(), device: me.device_id().to_string(), ..Invitation::default() })
+        let mut id = [0u8; 16];
+        OsRng.fill_bytes(&mut id);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        Ok(Invitation {
+            name,
+            room,
+            onion: me.my_onion().to_string(),
+            device: me.device_id().to_string(),
+            id: hex::encode(id),
+            expires: if ttl > 0 { now + ttl } else { 0 },
+            for_device: friend.map(|f| f.0.to_string()).unwrap_or_default(),
+        })
+    }
+    /// Offline mode (no Tor, no link).
+    fn offline(&self) -> bool {
+        false
+    }
+    /// Go offline / online.
+    fn set_offline(&mut self, _on: bool) {}
+    /// Connection timeout (s).
+    fn connect_timeout(&self) -> u64 {
+        crate::real::DEFAULT_CONNECT_TIMEOUT
+    }
+    /// Set it.
+    fn set_connect_timeout(&mut self, _secs: u64) {}
+    /// This device's discovery key for Your Beacon ("only my phones"), when known.
+    fn discovery_key(&mut self) -> Option<String> {
+        None
     }
     /// The invitations made here.
     fn invites(&self) -> Vec<InviteRecord> {
@@ -218,7 +222,7 @@ const ANN: &str = "ann";
 pub struct DemoBackend {
     hub: Hub,
     ann: Engine,
-    beacon: Option<String>,
+    beacon: Option<MyBeacon>,
     replies: usize,
 }
 
@@ -320,24 +324,6 @@ impl Backend for DemoBackend {
     fn tor_state(&self) -> TorState {
         TorState::Simulated
     }
-    fn beacon_enabled(&self) -> bool {
-        self.beacon.is_some()
-    }
-    fn set_beacon(&mut self, on: bool) -> Result<BeaconInfo, String> {
-        if on {
-            let mut b = [0u8; 35];
-            OsRng.fill_bytes(&mut b);
-            let onion = format!("{}.onion", codes::base32_lower(&b));
-            self.beacon = Some(onion);
-        } else {
-            self.beacon = None;
-        }
-        Ok(BeaconInfo {
-            enabled: on,
-            onion: self.beacon.clone(),
-            status: if on { "running (simulated)".into() } else { "stopped".into() },
-        })
-    }
     fn transport(&self) -> Arc<dyn Transport + Send + Sync> {
         Arc::new(self.hub.transport(ME))
     }
@@ -346,6 +332,13 @@ impl Backend for DemoBackend {
     }
     fn via_beacon(&self) -> bool {
         self.beacon.is_some()
+    }
+    fn my_beacon(&self) -> Option<MyBeacon> {
+        self.beacon.clone()
+    }
+    fn set_my_beacon(&mut self, code: Option<&str>) -> Result<Option<MyBeacon>, String> {
+        self.beacon = code.map(crate::real::parse_beacon_code).transpose()?;
+        Ok(self.beacon.clone())
     }
     fn start(&mut self, me: &mut Engine) {
         me.create_room("Harbour");

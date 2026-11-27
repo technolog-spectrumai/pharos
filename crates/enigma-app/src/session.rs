@@ -83,6 +83,9 @@ impl Session {
         self.core = Some(Core::new(Box::new(b), &name));
         self.idle = IdleLock::new(self.idle_mins(), now_ms);
         self.error.clear();
+        if !self.profiles.base.join("enigma-slint.json").exists() {
+            let _ = self.profiles.set_active(&self.vault.profile().to_string());
+        }
         Ok(())
     }
 
@@ -134,7 +137,7 @@ impl Session {
         self.opened(r, now_ms)
     }
 
-    /// Lock now: the app (links, Beacon) stops, the key leaves memory.
+    /// Lock now: the app (its client link) stops, the key leaves memory.
     pub fn lock(&mut self) {
         self.core = None;
         self.vault.lock();
@@ -198,13 +201,40 @@ impl Session {
         Ok(())
     }
 
+    /// Change the passphrase (twice, to catch a typo).
+    ///
+    /// # Errors
+    /// Wrong current one, mismatch, too short.
+    pub fn change_passphrase(&mut self, current: &str, new: &str, again: &str) -> Result<(), String> {
+        let r = if new != again {
+            Err("the two passphrases differ".to_string())
+        } else if new.chars().count() < 8 {
+            Err("use at least 8 characters".to_string())
+        } else {
+            self.vault.change_passphrase(current, new)
+        };
+        self.err(r)
+    }
+
+    /// Whether this profile came from the Tauri app (its vault is there but this app has
+    /// never chosen a profile): the lock screen says so; the passphrase is the same.
+    #[must_use]
+    pub fn from_tauri(&self) -> bool {
+        self.vault.exists() && !self.profiles.base.join("enigma-slint.json").exists()
+    }
+
+    /// The app leaves the session (a front end that runs it on its own, e.g. the console);
+    /// [`Session::lock`] still locks the vault.
+    pub fn take_core(&mut self) -> Option<Core> {
+        self.core.take()
+    }
+
     /// Erase this profile (danger zone): everything in it, back to Create.
     ///
     /// # Errors
     /// The store's.
     pub fn erase_profile(&mut self) -> Result<(), String> {
         self.core = None;
-        let _ = std::fs::remove_file(self.vault.dir().join("relay.sqlite"));
         self.vault.erase()
     }
 }
@@ -230,7 +260,7 @@ mod tests {
     #[test]
     fn gate_create_lock_unlock_idle_and_hide() {
         let base = tmp();
-        let mut s = Session::new(Profiles::new(base.clone()), Net::Test(Directory::default()), test_kdf()).unwrap();
+        let mut s = Session::new(Profiles::new(base.clone()), Net::Test(std::sync::Arc::new(Directory::default())), test_kdf()).unwrap();
         assert_eq!(s.gate(), Gate::Create);
         assert!(s.create("password1", "password2", 0).is_err());
         assert!(s.create("short", "short", 0).is_err());
