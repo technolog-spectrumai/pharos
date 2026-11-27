@@ -1,0 +1,61 @@
+    // ── enigma27-combo (inserted by build.rs at the end of Enigma27's AppWindow) ──
+
+    /// The Lighthouse view is shown (else the client).
+    in-out property <bool> lighthouse-shown: false;
+
+    function client(p: Page) { root.lighthouse-shown = false; root.page = p; }
+    function lighthouse(s: LhScreen) { root.lighthouse-shown = true; Lh.screen = s; }
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.inset-left;
+        height: root.height;
+        background: Theme.panel;
+        Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+        VerticalLayout {
+            padding: 10px;
+            spacing: 2px;
+            Rectangle {
+                height: 56px;
+                border-radius: Theme.radius;
+                background: Theme.header;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    spacing: 10px;
+                    Text { text: "E"; color: Theme.header-text; font-size: 24px; font-weight: 900; vertical-alignment: center; }
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: "Enigma27"; color: Theme.header-text; font-size: Theme.font-large; font-weight: 800; }
+                        Text { text: "with its Lighthouse"; color: #f2f3f5c0; font-size: 11px; }
+                    }
+                }
+            }
+            RailHeader { text: "ENIGMA27"; }
+            RailItem { icon: "💬"; text: "Chats"; active: !root.lighthouse-shown && root.page == Page.chat; clicked => { root.client(Page.chat); } }
+            RailItem { icon: "👥"; text: "Friends"; active: !root.lighthouse-shown && root.page == Page.friends; clicked => { root.client(Page.friends); } }
+            RailItem { icon: "⚙"; text: "Settings"; active: !root.lighthouse-shown && root.page == Page.settings; clicked => { root.client(Page.settings); } }
+            RailHeader {
+                text: "LIGHTHOUSE";
+                sub: Lh.phase;
+                dot: Lh.phase-kind == 2 ? #4fc1b0 : Lh.phase-kind == 1 ? #e0b55f : Lh.phase-kind == 3 ? #e07a5f : #8a93a6;
+            }
+            RailItem { icon: "⏻"; text: "Overview"; active: root.lighthouse-shown && Lh.screen == LhScreen.overview; clicked => { root.lighthouse(LhScreen.overview); } }
+            RailItem { icon: "📱"; text: "Clients"; badge: Lh.clients-online > 0 ? Lh.clients-online : ""; active: root.lighthouse-shown && Lh.screen == LhScreen.clients; clicked => { root.lighthouse(LhScreen.clients); } }
+            RailItem { icon: "#"; text: "Rooms"; badge: Lh.rooms-total > 0 ? Lh.rooms-total : ""; active: root.lighthouse-shown && Lh.screen == LhScreen.rooms; clicked => { root.lighthouse(LhScreen.rooms); } }
+            RailItem { icon: "⚙"; text: "Settings"; active: root.lighthouse-shown && Lh.screen == LhScreen.settings; clicked => { root.lighthouse(LhScreen.settings); } }
+            RailItem { icon: "☰"; text: "Log"; active: root.lighthouse-shown && Lh.screen == LhScreen.log; clicked => { root.lighthouse(LhScreen.log); } }
+            Rectangle { vertical-stretch: 1; }
+            if Lh.demo : Text { text: "demo mode"; color: Theme.muted; font-size: 11px; }
+        }
+    }
+
+    if root.lighthouse-shown : Rectangle {
+        x: root.inset-left;
+        y: 0px;
+        width: root.width - root.inset-left;
+        height: root.height;
+        // Clicks stop here (the client is underneath).
+        TouchArea { }
+        LighthouseView { sidebar: false; }
+    }

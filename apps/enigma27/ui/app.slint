@@ -246,6 +246,8 @@ export component AppWindow inherits Window {
     // Light/dark for the whole app, std widgets included (LineEdit etc. follow
     // Palette.color-scheme; Theme.dark is bound to it).
     public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
+    /// Follow the system's light/dark setting again.
+    public function set-system-theme() { Palette.color-scheme = ColorScheme.unknown; }
 
     in property <Texts> t;
     in-out property <Page> page: Page.chat;
@@ -367,6 +369,23 @@ export component AppWindow inherits Window {
     function go(p: Page) { root.page = p; main-menu.close(); root.activity(); }
 
     // ── main: sidebar + chat ────────────────────────────────────────────
+    /// Space kept free on the left (enigma27-combo puts its section rail there).
+    in property <length> inset-left: 0px;
+    /// A strip above the app, e.g. "Your Lighthouse is off" (enigma27-combo); empty: none.
+    in property <string> notice;
+    if root.notice != "" : Rectangle {
+        x: root.inset-left;
+        y: 0px;
+        width: root.width - root.inset-left;
+        height: 28px;
+        background: Theme.warn;
+        Text { text: root.notice; color: white; font-size: Theme.font-small; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    content := Rectangle {
+        x: root.inset-left;
+        y: root.notice == "" ? 0px : 28px;
+        width: root.width - root.inset-left;
+        height: root.height - self.y;
     HorizontalLayout {
         visible: !root.locked && (root.page == Page.chat || !root.narrow);
         // sidebar
@@ -990,5 +1009,6 @@ export component AppWindow inherits Window {
                 MenuItem { text: root.t.delete-room; danger: true; clicked => { root.delete-room(); } }
             }
         }
+    }
     }
 }

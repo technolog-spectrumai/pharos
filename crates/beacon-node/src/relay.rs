@@ -15,7 +15,7 @@
 //! attaches in-process.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -213,6 +213,8 @@ pub struct Relay {
     st: Mutex<State>,
     me: Weak<Relay>,
     sweeper: Mutex<Option<JoinHandle<()>>>,
+    /// Set by [`Relay::stop`]: no new links after it.
+    stopped: AtomicBool,
 }
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -233,7 +235,7 @@ impl Relay {
     pub fn start(cfg: RelayConfig, node_seed: &[u8; 32], dialer: Arc<dyn Dialer>, store: Arc<dyn QueueStore>) -> Arc<Self> {
         let key = SigningKey::from_bytes(node_seed);
         let node = hex::encode(key.verifying_key().to_bytes());
-        let relay = Arc::new_cyclic(|me| Self { cfg, key, node, dialer, store, st: Mutex::new(State::default()), me: me.clone(), sweeper: Mutex::new(None) });
+        let relay = Arc::new_cyclic(|me| Self { cfg, key, node, dialer, store, st: Mutex::new(State::default()), me: me.clone(), sweeper: Mutex::new(None), stopped: AtomicBool::new(false) });
         {
             let mut st = relay.lock();
             for (dev, room, peers) in relay.store.members() {
@@ -360,8 +362,15 @@ impl Relay {
         }
     }
 
+    /// Stopped ([`Relay::stop`]): it takes no new links.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+
     /// Stops every link, dialer and session.
     pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
         let mut st = self.lock();
         for r in st.rooms.values_mut() {
             r.stop();
@@ -394,6 +403,9 @@ impl Relay {
 
     /// Serves a stream whose hello was already read (`text`).
     pub async fn serve_hello(&self, text: &str, rd: BoxRead, wr: BoxWrite) {
+        if self.is_stopped() {
+            return;
+        }
         let Some(me) = self.arc() else { return };
         match serde_json::from_str::<LinkHello>(text) {
             Ok(LinkHello::Client { device, ts, sig }) => me.serve_client(device, ts, &sig, rd, wr).await,

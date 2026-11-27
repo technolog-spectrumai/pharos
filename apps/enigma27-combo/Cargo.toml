@@ -1,0 +1,49 @@
+[package]
+name = "enigma27-combo"
+version = "0.1.0"
+description = "Enigma27 and Pharos Lighthouse in one window: the client attached in-process to its own Lighthouse (Linux)."
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "enigma27_combo"
+path = "src/lib.rs"
+
+[[bin]]
+name = "enigma27-combo"
+path = "src/main.rs"
+
+[dependencies]
+enigma27 = { path = "../enigma27" }
+pharos-lighthouse = { path = "../pharos-lighthouse" }
+enigma-app = { path = "../../crates/enigma-app" }
+enigma-core = { path = "../../crates/enigma-core" }
+beacon = { path = "../../beacon" }
+beacon-node = { path = "../../crates/beacon-node" }
+slint = { version = "1.19", features = ["software-renderer-systemfonts"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+anyhow = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# The client glue sends desktop notifications.
+notify-rust = "4"
+
+[build-dependencies]
+slint-build = "1.19"
+
+[dev-dependencies]
+png = "0.18"
+
+[[example]]
+name = "combo-screens"
+path = "examples/screens.rs"
+
+[package.metadata.deb]
+name = "enigma27-combo"
+section = "net"
+extended-description = "Enigma27 (the client) and Pharos Lighthouse (its Beacon) in one window."
+assets = [["target/release/enigma27-combo", "usr/bin/", "755"]]

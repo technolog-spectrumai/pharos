@@ -1,0 +1,52 @@
+// Pieces of the combo window: the section rail. build.rs makes the window itself from
+// Enigma27's ui/app.slint (renamed ComboWindow, so it keeps Enigma27's whole Rust API)
+// plus window-body.slint.in; nothing is copied into the repository.
+import { Theme } from "../../enigma27/ui/theme.slint";
+
+export component RailItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <bool> active;
+    in property <string> badge;
+    callback clicked;
+    height: 40px;
+    border-radius: 8px;
+    background: active ? Theme.selected : ta.has-hover ? Theme.selected.with-alpha(0.5) : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 10px;
+        Text { text: root.icon; font-size: 15px; color: Theme.text; vertical-alignment: center; width: 20px; }
+        Text { text: root.text; font-size: Theme.font; font-weight: root.active ? 700 : 400; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        if root.badge != "" : Rectangle {
+            y: (parent.height - 20px) / 2;
+            height: 20px;
+            min-width: 24px;
+            border-radius: 10px;
+            background: Theme.accent;
+            Text { text: root.badge; color: white; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+}
+
+export component RailHeader inherits Rectangle {
+    in property <string> text;
+    in property <string> sub;
+    in property <color> dot: transparent;
+    height: 44px;
+    HorizontalLayout {
+        padding-left: 10px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Text { text: root.text; color: Theme.muted; font-size: Theme.font-small; font-weight: 800; }
+            if root.sub != "" : HorizontalLayout {
+                spacing: 6px;
+                Rectangle { width: 8px; height: 8px; y: (parent.height - 8px) / 2; border-radius: 4px; background: root.dot; }
+                Text { text: root.sub; color: Theme.muted; font-size: 11px; }
+            }
+        }
+    }
+}
+

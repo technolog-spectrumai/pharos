@@ -41,6 +41,9 @@ pub enum Net {
     Tor,
     /// Tests: dial through this (e.g. beacon-node's in-memory `Directory`).
     Test(Arc<dyn Dialer>),
+    /// Your Beacon runs in this process (enigma27-combo: its own Lighthouse): dial it
+    /// through this, no Tor hop. Production timings, unlike [`Net::Test`].
+    Local(Arc<dyn Dialer>),
 }
 
 /// Your Beacon, as the vault keeps it.
@@ -259,6 +262,10 @@ impl RealBackend {
         if matches!(b.net, Net::Test(_)) {
             b.redial = |n| Duration::from_millis((50 * u64::from(n)).min(400));
         }
+        if matches!(b.net, Net::Local(_)) {
+            // In-process dials are cheap: back on soon after the Lighthouse restarts.
+            b.redial = |n| Duration::from_millis((500 * u64::from(n)).min(3_000));
+        }
         if matches!(b.net, Net::Tor) && !b.vault.setting("offline").is_some_and(|v| v == "1") {
             b.start_tor();
         }
@@ -313,7 +320,7 @@ impl RealBackend {
     fn dialer(&self) -> Arc<dyn Dialer> {
         match &self.net {
             Net::Tor => Arc::new(LazyTor(self.tor.clone(), Duration::from_secs(self.connect_timeout()))),
-            Net::Test(d) => d.clone(),
+            Net::Test(d) | Net::Local(d) => d.clone(),
         }
     }
 
@@ -538,7 +545,7 @@ impl Backend for RealBackend {
         if self.offline() {
             return TorState::Off;
         }
-        if let Net::Test(_) = self.net {
+        if let Net::Test(_) | Net::Local(_) = self.net {
             return match &self.client {
                 None => TorState::Off,
                 Some(c) if c.is_connected() => TorState::Ready,

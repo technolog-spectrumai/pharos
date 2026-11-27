@@ -20,6 +20,7 @@ members = [
     "crates/enigma-client",
     "apps/enigma27",
     "apps/pharos-lighthouse",
+    "apps/enigma27-combo",
     "apps/enigma/src-tauri",
 ]
 exclude = [

@@ -210,6 +210,8 @@ export global Lh {
 
 /// The whole Lighthouse UI (sidebar + screens), without a window.
 export component LighthouseView inherits Rectangle {
+    /// Its own sidebar (off in enigma27-combo, whose rail has the same entries).
+    in property <bool> sidebar: true;
     background: Theme.bg;
     // A hidden text field to put text on the clipboard.
     clip := TextInput { visible: false; width: 0px; height: 0px; }
@@ -223,7 +225,8 @@ export component LighthouseView inherits Rectangle {
     HorizontalLayout {
         // Sidebar ─────────────────────────────────────────────────────────
         Rectangle {
-            width: 210px;
+            width: root.sidebar ? 210px : 0px;
+            visible: root.sidebar;
             background: Theme.panel;
             Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
             VerticalLayout {

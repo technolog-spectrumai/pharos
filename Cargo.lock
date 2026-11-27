@@ -3021,6 +3021,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "enigma27-combo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beacon",
+ "beacon-node",
+ "enigma-app",
+ "enigma-core",
+ "enigma27",
+ "notify-rust",
+ "pharos-lighthouse",
+ "png 0.18.1",
+ "slint",
+ "slint-build",
+ "tokio",
+]
+
+[[package]]
 name = "enigmatite"
 version = "0.1.0"
 dependencies = [

@@ -227,6 +227,12 @@ impl Model {
         Ok(m)
     }
 
+    /// The runtime the Beacon runs on (enigma27-combo dials its relay from here).
+    #[must_use]
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        self.handle.clone()
+    }
+
     #[must_use]
     pub fn is_demo(&self) -> bool {
         matches!(self.mode, Mode::Demo)
