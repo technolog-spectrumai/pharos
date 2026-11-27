@@ -1,33 +1,37 @@
 # Enigma27
 
-A **serverless, end-to-end-encrypted group chat with file transfer, always
-over Tor** — a Tauri 2 + Vue 3 desktop and Android app. There is no app
-server: every member of a room hosts its own Tor onion service for it and
-keeps a link to every other member; all content is encrypted with **MLS**
-(OpenMLS), and everything the app keeps is **encrypted at rest** behind a
-passphrase.
+An **end-to-end-encrypted group chat with file transfer, always over Tor** — a
+Tauri 2 + Vue 3 app for Linux and Android. Every member of a room hosts its own
+Tor onion service for it and keeps a link to every other member; all content is
+encrypted with **MLS** (OpenMLS), and everything the app keeps is **encrypted at
+rest** behind a passphrase.
 
-- **Rooms** — you get into one only by redeeming an invitation (a QR or text),
-  sealed to your device or a bearer code, expiring and revocable, against the
-  inviter's onion while it is online. Each room is an MLS group; there is no
-  captain and no moderation.
-- **Transport** — a mesh of onion services (arti, embedded, with full
-  vanguards). Frames go straight down each link; nobody forwards anyone else's
-  traffic. No direct connection, no relay server, no discovery service.
-- **Files** — downloaded from the sender's onion, once per acceptance, checked
-  by BLAKE3 before they are kept.
-- **One edition** — chat and files.
+- **Rooms** — a mesh: nobody relays for anyone, there is no host to lose. Frames
+  are padded, links carry cover traffic, and the sender is sealed inside the
+  ciphertext.
+- **Invitations** — the only way in. *Personal* ones are sealed to a friend's
+  device; *general* ones are bearer codes. They expire and can be revoked.
+- **Friends** — pair two phones by scanning each other's device code and
+  comparing a 12-digit check code. Share your code with friends, not publicly.
+- **Beacon (optional)** — add your own Beacon server in Settings → Connections.
+  Rooms you create then also leave every sealed frame in a mailbox there, so
+  members who are never online together still get each other's messages, and an
+  invitation can wait there for an offline inviter for up to 30 minutes.
+- **Files** — downloaded from the sender's onion, checked by BLAKE3.
+- **No pictures of people** — everyone's icon is the first letter of their
+  nickname.
 
-Enigma27 came from technolog-spectrumai/enigma, branch `dev_mvp1` ("Enigma26"),
+Enigma27 came from technolog-spectrumai/enigma (where it was Enigma26) and was
 copied into Pharos on 2026-11-22/23; Pharos owns the code now. It is
-`com.spectrumaipl.enigma27`; its icon is the letter E (`scripts/letter_icon.py`).
+`com.spectrumaipl.enigma27`, version 0.2.4; its icon is the letter E
+(`scripts/letter_icon.py`).
 
 ## Layout
 
 ```
 apps/enigma/
 ├── src/                   the Vue 3 front end
-├── src-tauri/             the Rust core: mesh.rs (Tor), files.rs, invite_*.rs, device.rs, vault.rs, lib.rs (mls_*)
+├── src-tauri/             the Rust core: mesh.rs (Tor), beacon.rs, files.rs, invite_*.rs, device.rs, vault.rs, lib.rs (mls_*)
 ├── packages/rakotis/      the room engine in TypeScript (useChatChannel, chatTransport, history)
 ├── scripts/               dev helpers (profile reset, build dirs), the signing tests
 ├── run_dev.sh  tests.sh  todo.md  technology.md
@@ -63,8 +67,11 @@ signing and tests. There are no build flags. Packages land in
 `dist/enigma/enigma/`, with a `SHA256SUMS` and a `build.json`. Before anything
 compiles, the build checks with `cargo tree` that Enigma links none of
 OpenSSL, the DHT's `mainline` or the call equalizer's `rustfft`
-([dromon/README.md](../../dromon/README.md#feature-isolation)). Android:
-`tools/android/` and the `android:` section of dromon.yaml.
+([dromon/README.md](../../dromon/README.md#feature-isolation)). An Android APK:
+
+```bash
+tools/android/build_android.sh enigma debug aarch64
+```
 
 ## Test
 
@@ -80,13 +87,13 @@ table.
 
 ## Removed features
 
-Removed 2026-11-22/23, when Enigma26 became Enigma27 in Pharos: iroh,
-iroh-gossip and Ferrozine (no direct P2P at all), the "Route over Tor" and
-"Keep onion stable" switches (always Tor, onion always stable), the file
-integrity switch (files are always verified), legacy room tickets, the captain
-(star topology, election, failover, relaying) and all moderation (room logo,
-rules, mute, kick and ban). Privacy HP went on 2026-11-22. The DHT (Heliodor)
-was never in Enigma27. The detail is in [technology.md §16](technology.md#16-history--the-serverless-rework).
+When Enigma26 became Enigma27 in Pharos (2026-11-22/23): iroh, iroh-gossip and
+Ferrozine (no direct P2P at all), the Tor and "Keep onion stable" switches, the
+file integrity switch, legacy room tickets, the captain (star topology,
+election, failover, relaying) and all moderation (room logo, rules, mute, kick
+and ban). Privacy HP went on 2026-11-22. Profile photos and avatars went later
+(letter icons instead). The DHT (Heliodor) was never in Enigma27. Details:
+[technology.md §16](technology.md#16-history--the-serverless-rework).
 
 Earlier removals, when Enigma lived in Belisario; the commits named are
 Belisario's (restore a file with `git show <commit>:<path> > <path>`):
@@ -100,10 +107,11 @@ Belisario's (restore a file with `git show <commit>:<path> > <path>`):
 
 ## Documentation
 
-Everything else is in **[technology.md](technology.md)**: architecture and
-message flow, the Tor mesh and vanguards, how messages are kept and
-encrypted, the cryptography and its known weaknesses, privacy, the UI, who
-owns which setting, and — from §19 on — running, building, releasing,
-installing and troubleshooting. Open work is in [todo.md](todo.md) and the
-root [todo.md](../../todo.md) (Stage 7). Who learns what:
-[SECURITY.md](../../SECURITY.md); the wire: [PROTOCOL.md](../../PROTOCOL.md), Part A.
+- [technology.md](technology.md) — how it works: the mesh, padding and cover
+  traffic, MLS and sealed sender, Beacon mailboxes, invitations, encryption at
+  rest, the UI, config, and from §19 on running, building, releasing and
+  installing.
+- [todo.md](todo.md) — open work here; the root [todo.md](../../todo.md)
+  Stages 7–8 for the Beacon and metadata work.
+- [SECURITY.md](../../SECURITY.md) — who learns what;
+  [PROTOCOL.md](../../PROTOCOL.md) — the wire.

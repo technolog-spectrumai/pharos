@@ -26,7 +26,7 @@
 //! ## Wire format
 //!
 //! ```text
-//! base32-nopad-lowercase( TAG(0x4E) || FORMAT_V(0x01) || KIND || body )
+//! base32-nopad-lowercase( TAG(0x4E) || FORMAT_V(0x02) || KIND || body )
 //!
 //!   KIND = 0x50 'P' -> body = seal_to(recipient_x25519, AAD, postcard(InviteBody))
 //!   KIND = 0x47 'G' -> body = postcard(InviteBody)

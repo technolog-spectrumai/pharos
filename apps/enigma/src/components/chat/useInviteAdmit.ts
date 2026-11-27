@@ -11,9 +11,9 @@
 //
 // A redemption completes only while the inviter has THAT ROOM OPEN. Not merely
 // the app running: `addMember` needs the group loaded and the commit needs a
-// live transport to go out on. Combined with the older rule that the inviter
-// must be online at all (there is no store-and-forward — technology.md §16), an
-// invitation is a rendezvous, not a message left for someone.
+// live transport to go out on. A redemption left at the room's Beacon while
+// this phone was offline (invite_drop.rs, technology.md §17) waits there and is
+// answered the same way once the phone is back.
 //
 // When the room is not open we answer `ok: false` immediately rather than
 // letting the request time out. That difference matters: a fast, specific

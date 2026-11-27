@@ -1,63 +1,51 @@
 # Enigma27 — todo
 
-Stages and their steps. `[x]` done and verified, `[~]` partly done, `[ ]` not
-started. How things work is in [technology.md](technology.md).
+`[x]` done, `[~]` partly done, `[ ]` not started. How things work is in
+[technology.md](technology.md). The Beacon and metadata work (padding, sealed
+sender, cover traffic, mailboxes, invitations through Beacon) is the root
+[todo.md](../../todo.md) Stages 7–8; it is done apart from a real-Tor test run
+(8.E2).
 
-## Stage 1 — Maps
+## Done
 
-- [x] **1.1 Move maps out to Morion.** The Map tab, `maps.rs`, the `maps`
-      feature, the map libraries and `tools/map_packager` are gone from this
-      repo; a map share in a room's history shows as a card that cannot be
-      opened. What was done and what stays: technology.md §16.
+- [x] **Maps moved to Morion** (2026-10-03). A map share in an old history shows
+      as a card that cannot be opened. technology.md §16.
+- [x] **Into Pharos as Enigma27** (2026-11-22/23), from technolog-spectrumai/enigma
+      (Enigma26); identifier `com.spectrumaipl.enigma27`, the letter E as icon.
+- [x] **Always Tor, a mesh**: every member hosts an onion per room and links to
+      every other; outbox, backoff, stable onions, full vanguards. technology.md §11.
+- [x] **Room start fixes**: MLS starts on entering a room; sessions kept across
+      reopens; no plaintext sent or shown. technology.md §4.
+- [x] **Invitations over the onion**, and through Beacon when the inviter is
+      offline (ticket format 2). technology.md §17, §18.
+- [x] **Padding, sealed sender, cover traffic** (root 7.1, 7.2, 7.4 / 8.A, 8.D).
+- [x] **Beacon mailboxes** (root 8.B, 8.C): Settings → Connections → Your Beacon.
+- [x] **Friends**: device codes and 12-digit check codes; personal invitations
+      picked from Friends.
+- [x] **Letter icons** instead of photos and avatars; nickname in Settings.
+- [x] **Tor indicator** in the app bar; one ☰ menu; room header with a ⋮ menu.
 
-## Stage 2 — Into Pharos (2026-11-22/23)
+## Open
 
-- [x] **2.1 Copy Enigma26 into Pharos as Enigma27.** From technolog-spectrumai/enigma,
-      `dev_mvp1`, copied (not vendored); identifier `com.spectrumaipl.enigma27`; the
-      letter E as icon (`scripts/letter_icon.py`). It replaces the Friends + Vesper
-      client. technology.md §16.
-- [x] **2.2 Always Tor, a mesh.** iroh, iroh-gossip and Ferrozine gone; every member
-      hosts an onion per room and links to every other; outbox, backoff, stable
-      onions (arti's state sealed in the vault); full vanguards; Tor starts after
-      unlock. technology.md §11.
-- [x] **2.3 Remove the captain and all moderation** (logo, rules, mute, kick/ban),
-      legacy tickets, the "Route over Tor", "Keep onion stable" and file-integrity
-      switches.
-- [x] **2.4 Room start fixes.** MLS starts on entering a room; a new room is a group
-      of one at once; sessions kept across reopens; sending needs only encryption;
-      no plaintext sent or shown. technology.md §4.
-- [x] **2.5 Invitations over the onion**, with the inviter's device id; the grant
-      carries every member's onion. Files downloaded from the sender's onion.
-- [ ] **2.6 The reset frame.** `mls_reset_request` is plaintext and unauthenticated:
-      any connection to a member's onion can make it start a new group of one, which
-      then cannot get back in (key packages from the mesh are refused). Authenticate
-      it (inside MLS) or remove it with the "reset encryption" button. §9 item 4.
-- [ ] **2.7 The MLS identity is the profile name** (`CHAT_USER`, default `default`).
-      Two people who both use the profile "default" collide in one room (each drops
-      the other's frames as its own). Use the device id, or a random per-profile id.
-- [ ] **2.8 Links accept anyone.** An inbound link is taken on the onion its `Hello`
-      claims, and `broadcast` writes to every live link, so whoever knows a member's
-      onion receives that member's frames and can displace a member's link by
-      claiming its onion. Tor client authorisation (root todo.md 7.3) closes it;
-      until then, send only to wanted members.
-- [ ] **2.9 Stage 7 of the root todo.md**: padding, sealed sender fields, cover
-      traffic.
-
-## Open, outside the stages
-
-Kept from before the stages, one line each; the detail is in technology.md
-(§13, §16, §20) and in this file's history.
-
-- [ ] Pins in existing profiles (`map:pins`) have no way out of the vault; an
-      export to `.geojson` would carry them to Morion. Decide if it is needed.
-- [ ] Region files stay on disk in a profile that used maps
-      (`profiles/<p>/maps/*.pmtiles`); they open in Morion as they are.
+- [ ] **The reset frame.** `mls_reset_request` is plaintext and unauthenticated:
+      anyone who reaches a member's onion can make it start a new group of one.
+      Authenticate it inside MLS, or remove it with "Reset encryption".
+      technology.md §9 item 4.
+- [ ] **The MLS identity is the profile name** (`CHAT_USER`, default `default`).
+      Two people who both use "default" collide in one room. Use the device id or
+      a random per-profile id.
+- [ ] **Links accept anyone.** An inbound link is taken on the onion its `Hello`
+      claims, so whoever knows a member's onion receives that member's (sealed,
+      padded) frames and can displace a member's link. technology.md §9 item 7.
+- [ ] **Key verification in rooms**: bind the MLS credential to the device key.
+- [ ] Real-Tor run of the Beacon paths (root 8.E2).
+- [ ] Stale comments in code: `invite_ticket.rs`'s header still says
+      `FORMAT_V(0x01)`; `useInviteAdmit.ts` still says "no store-and-forward";
+      leftover `avatar_url` fields in rakotis messages.
+- [ ] Pins in old profiles (`map:pins`) have no way out of the vault; region
+      files stay on disk (`profiles/<p>/maps/*.pmtiles`). Decide if an export is
+      needed.
 - [ ] `WEBKIT_DISABLE_DMABUF_RENDERER=1` (`main.rs`) was for the map canvas;
       removing it wants a look on an NVIDIA / hybrid-GPU machine.
-- [ ] Playwright smoke tests: check them after the move (three failed in Enigma26:
-      the DHT toggle, "find people", Create).
+- [ ] Playwright smoke tests: check them after the move.
 - [ ] Version is duplicated in `Cargo.toml` and three `package.json` files.
-- [ ] Stale comments in code still name iroh, tickets and editions
-      (`Cargo.toml`, `build_config.yaml`, `invite_ticket.rs`, `vault.rs`).
-- [ ] Undecided: per-preset setting defaults; telling a sender that a peer's build
-      lacks a feature.
