@@ -107,11 +107,12 @@ pub fn base32_lower(b: &[u8]) -> String {
 }
 
 /// A QR code as lines of Unicode half blocks: two modules per character row, light modules
-/// drawn (so it scans on a dark terminal), with a 2-module quiet zone.
+/// drawn, with the standard 4-module quiet zone. The UI draws the lines white on black
+/// so the code reads dark-on-light whatever the terminal's theme.
 #[must_use]
 pub fn qr_lines(text: &str) -> Vec<String> {
     let Ok(qr) = QrCode::encode_text(text, QrCodeEcc::Low) else { return vec!["(code too long for a QR)".into()] };
-    let q = 2i32;
+    let q = 4i32;
     let n = qr.size();
     let light = |x: i32, y: i32| !(x >= 0 && y >= 0 && x < n && y < n && qr.get_module(x, y));
     let mut out = vec![];

@@ -248,7 +248,13 @@ fn draw_dialog(f: &mut Frame, app: &App, d: &Dialog) {
             ("Join a room", l, 80, 11)
         }
         Dialog::Invite(code) => {
-            let mut l: Vec<Line> = codes::qr_lines(code).into_iter().map(|q| Line::raw(q).alignment(Alignment::Center)).collect();
+            // Explicit colours: white blocks on black, so a light terminal theme does not
+            // invert the code (some phone scanners refuse inverted QRs).
+            let qr_style = Style::new().fg(ratatui::style::Color::White).bg(ratatui::style::Color::Black);
+            let mut l: Vec<Line> = codes::qr_lines(code)
+                .into_iter()
+                .map(|q| Line::from(ratatui::text::Span::styled(q, qr_style)).alignment(Alignment::Center))
+                .collect();
             l.push(Line::raw(code.clone()));
             l.push(Line::styled("Scan or send this code; the other device pastes it in [j] Join.  Esc close", Style::new().fg(DIM)));
             let h = (l.len() as u16 + 4).min(area.height);
