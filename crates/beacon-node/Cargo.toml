@@ -30,6 +30,12 @@ anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 # OsRng for the cover-traffic jitter (the same source the app used).
 chacha20poly1305 = "0.10"
+# The sealed SQLite queue (feature `sqlite`): the beacon binary and the app's in-process Beacon.
+rusqlite = { version = "0.39", features = ["bundled"], optional = true }
+
+[features]
+sqlite = ["dep:rusqlite"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile = "3"

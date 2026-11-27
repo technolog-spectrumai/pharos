@@ -7,7 +7,20 @@ use std::collections::HashMap;
 
 use enigma_core::{Engine, Event, LinkStatus, Message, MessageKind, MlsStatus, Participant};
 
-use crate::backend::{build_engine, Backend, BeaconInfo, TorState};
+use crate::backend::{build_engine, Backend, BeaconInfo, InviteRecord, MyBeacon, TorState};
+use crate::vault::Vault;
+
+fn load_friends(v: &Vault) -> Vec<Friend> {
+    let raw = v.kv_get("friends", "default", "list").unwrap_or_default();
+    let list: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let mut out: Vec<Friend> = list
+        .iter()
+        .filter_map(|f| Some(Friend { id: f["id"].as_str()?.to_string(), name: f["name"].as_str().unwrap_or("").to_string() }))
+        .filter(|f| codes::is_device_id(&f.id))
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
 use crate::codes;
 use crate::i18n::{t, tf, Lang};
 
@@ -20,8 +33,9 @@ pub struct Friend {
     pub name: String,
 }
 
-/// Whether this build can run the in-process Beacon (desktop yes, Android no: client only).
-pub const BEACON_SUPPORTED: bool = !cfg!(target_os = "android");
+/// Whether this build can run the in-process Beacon: Linux only (user decision 2026-11-27);
+/// Windows, macOS, Android and iOS are clients only.
+pub const BEACON_SUPPORTED: bool = cfg!(all(target_os = "linux", not(target_os = "android")));
 
 /// The app.
 pub struct Core {
@@ -51,8 +65,15 @@ impl Core {
     pub fn new(mut backend: Box<dyn Backend>, name: &str) -> Self {
         let mut engine = build_engine(backend.as_ref(), name);
         backend.start(&mut engine);
-        let friends = backend.seed_friends().into_iter().map(|(id, name)| Friend { id, name }).collect();
-        let beacon = BeaconInfo { enabled: backend.beacon_enabled(), onion: None, status: "off".into() };
+        let mut friends: Vec<Friend> = backend.seed_friends().into_iter().map(|(id, name)| Friend { id, name }).collect();
+        let mut lang = Lang::En;
+        if let Some(v) = backend.vault() {
+            friends = load_friends(v);
+            if let Some(l) = v.setting("lang") {
+                lang = Lang::from_code(&l);
+            }
+        }
+        let beacon = backend.beacon_info();
         let mut c = Self {
             engine,
             backend,
@@ -62,7 +83,7 @@ impl Core {
             status: String::new(),
             unread: HashMap::new(),
             user_name: name.into(),
-            lang: Lang::En,
+            lang,
         };
         let _ = c.engine.drain_events();
         c.sync_selection();
@@ -86,9 +107,72 @@ impl Core {
     /// Time passes (~250 ms): engine timers, incoming frames, events. `viewing`: the current
     /// room's timeline is on screen (else new messages count as unread).
     pub fn tick(&mut self, viewing: bool) {
+        if self.backend.take_rebuild() {
+            self.rebuild();
+        }
         self.engine.tick();
         self.backend.poll(&mut self.engine);
+        for s in self.backend.take_status() {
+            self.status = s;
+        }
+        self.beacon = self.backend.beacon_info();
         self.drain(viewing);
+    }
+
+    /// A fresh engine on the backend's (new) transport, back in the room we were in.
+    fn rebuild(&mut self) {
+        let cur = self.engine.current_room().map(str::to_string);
+        self.engine = build_engine(self.backend.as_ref(), &self.user_name);
+        if let Some(slug) = cur {
+            self.engine.open_room(&slug);
+        }
+        let _ = self.engine.drain_events();
+        self.sync_selection();
+    }
+
+    /// Change the UI language (kept in the vault).
+    pub fn set_lang(&mut self, l: Lang) {
+        self.lang = l;
+        if let Some(v) = self.backend.vault() {
+            v.set_setting("lang", l.code());
+        }
+    }
+
+    fn save_friends(&self) {
+        if let Some(v) = self.backend.vault() {
+            let list: Vec<serde_json::Value> = self.friends.iter().map(|f| serde_json::json!({ "id": f.id, "name": f.name, "addedAt": 0 })).collect();
+            v.kv_put("friends", "default", "list", &serde_json::Value::Array(list).to_string());
+        }
+    }
+
+    /// Remove a friend.
+    pub fn remove_friend(&mut self, id: &str) {
+        self.friends.retain(|f| f.id != id);
+        self.save_friends();
+    }
+
+    /// Your Beacon (the code's onion and name), when set.
+    #[must_use]
+    pub fn my_beacon(&self) -> Option<MyBeacon> {
+        self.backend.my_beacon()
+    }
+
+    /// Set Your Beacon from a `pharos-beacon:` code (`None` removes it).
+    pub fn set_my_beacon(&mut self, code: Option<&str>) -> bool {
+        match self.backend.set_my_beacon(code) {
+            Ok(Some(b)) => {
+                self.status = format!("Your Beacon: {}", if b.name.is_empty() { &b.onion } else { &b.name });
+                true
+            }
+            Ok(None) => {
+                self.status = "Your Beacon removed.".into();
+                true
+            }
+            Err(e) => {
+                self.status = e;
+                false
+            }
+        }
     }
 
     /// Handle the engine's queued events.
@@ -229,15 +313,33 @@ impl Core {
         codes::encode_pairing(self.engine.device_id(), &self.user_name)
     }
 
-    /// The invitation code for the current room.
+    /// A new invitation code for the current room (general, no expiry).
+    pub fn invitation_code(&mut self) -> Option<String> {
+        self.invite(0, None)
+    }
+
+    /// A new invitation for the current room: `ttl` seconds (0 = none), for a friend
+    /// (device id) or anyone holding the code.
+    pub fn invite(&mut self, ttl: u64, friend: Option<&str>) -> Option<String> {
+        let f = friend.and_then(|id| self.friends.iter().find(|f| f.id == id)).map(|f| (f.id.clone(), f.name.clone()));
+        match self.backend.make_invite(&self.engine, ttl, f.as_ref().map(|(a, b)| (a.as_str(), b.as_str()))) {
+            Ok(inv) => Some(codes::encode_invitation(&inv)),
+            Err(e) => {
+                self.status = format!("Invite: {e}");
+                None
+            }
+        }
+    }
+
+    /// The invitations made here, newest first.
     #[must_use]
-    pub fn invitation_code(&self) -> Option<String> {
-        let room = self.engine.current_room()?.to_string();
-        Some(codes::encode_invitation(&codes::Invitation {
-            name: self.room_name().unwrap_or_default(),
-            room,
-            onion: self.engine.my_onion().to_string(),
-        }))
+    pub fn invites(&self) -> Vec<InviteRecord> {
+        self.backend.invites()
+    }
+
+    /// Withdraw an invitation.
+    pub fn revoke_invite(&mut self, id: &str) {
+        self.backend.revoke_invite(id);
     }
 
     /// Send a text; false (and a status) when it could not go.
@@ -297,6 +399,9 @@ impl Core {
         let ok = match self.backend.redeem(&mut self.engine, &inv) {
             Ok(()) => {
                 self.status = format!("Joined \u{201c}{}\u{201d}.", inv.name);
+                for s in self.backend.take_status() {
+                    self.status = s;
+                }
                 true
             }
             Err(e) => {
@@ -325,6 +430,7 @@ impl Core {
             self.friends.push(Friend { id: id.clone(), name: name.clone() });
             self.friends.sort_by(|a, b| a.name.cmp(&b.name));
         }
+        self.save_friends();
         let check = codes::check_code(self.engine.device_id(), &id);
         self.status = tf(self.lang, "friends.added", &[("name", &name), ("code", &check)]);
         Some(check)
@@ -343,6 +449,9 @@ impl Core {
             return;
         }
         self.user_name = n.into();
+        if let Some(v) = self.backend.vault() {
+            v.set_setting("nickname", n);
+        }
         self.engine.set_user_name(n);
         self.backend.poll(&mut self.engine);
         self.drain(true);
@@ -383,7 +492,7 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::{DemoBackend, RealBackend, NOT_CONNECTED};
+    use crate::backend::DemoBackend;
 
     fn demo() -> Core {
         Core::new(Box::new(DemoBackend::new()), "Me")
@@ -464,16 +573,5 @@ mod tests {
         assert_eq!(c.engine.rooms().len(), 1);
         c.set_user_name("Zed");
         assert!(c.my_friend_code().ends_with(":WmVk"));
-    }
-
-    #[test]
-    fn the_real_backend_says_not_connected() {
-        assert_eq!(RealBackend::connect().err().as_deref(), Some(NOT_CONNECTED));
-        let mut c = Core::new(Box::new(RealBackend), "Me");
-        assert!(!c.connected());
-        c.toggle_beacon();
-        assert!(c.status.contains("stage 2"));
-        assert!(!c.create_room("X"));
-        assert!(c.status.contains("stage 2"), "{}", c.status);
     }
 }

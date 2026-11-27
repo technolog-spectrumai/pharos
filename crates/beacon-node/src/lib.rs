@@ -39,6 +39,8 @@ pub mod link;
 pub mod proto;
 pub mod queue;
 pub mod relay;
+#[cfg(feature = "sqlite")]
+pub mod sqlite_queue;
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;

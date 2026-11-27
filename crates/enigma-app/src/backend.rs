@@ -11,6 +11,10 @@ use rand_core::{OsRng, RngCore};
 use serde_json::Value;
 
 use crate::codes::{self, Invitation};
+pub use crate::real::{InviteRecord, MyBeacon};
+use crate::vault::Vault;
+use enigma_core::Kv;
+use enigmatite::mls::Store;
 
 /// The Tor client's state, for the top bar.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,19 +94,69 @@ pub trait Backend {
     fn seed_friends(&self) -> Vec<(String, String)> {
         vec![]
     }
+    /// Where the engine keeps its state and the device key seed (`None`: memory, a fresh key).
+    fn storage(&self) -> Option<(Box<dyn Kv + Send>, Arc<dyn Store + Send + Sync>, [u8; 32])> {
+        None
+    }
+    /// The profile vault, when there is one.
+    fn vault(&self) -> Option<&Vault> {
+        None
+    }
+    /// The engine must be rebuilt (its transport changed: a new home Beacon).
+    fn take_rebuild(&mut self) -> bool {
+        false
+    }
+    /// Status lines since the last call (redemptions, Beacon start, refusals).
+    fn take_status(&mut self) -> Vec<String> {
+        vec![]
+    }
+    /// The Beacon now.
+    fn beacon_info(&self) -> BeaconInfo {
+        BeaconInfo { enabled: self.beacon_enabled(), onion: None, status: if self.beacon_enabled() { "running".into() } else { "stopped".into() } }
+    }
+    /// Your Beacon (the client link's home), when set.
+    fn my_beacon(&self) -> Option<MyBeacon> {
+        None
+    }
+    /// Set or clear Your Beacon.
+    ///
+    /// # Errors
+    /// Not a Beacon code.
+    fn set_my_beacon(&mut self, _code: Option<&str>) -> Result<Option<MyBeacon>, String> {
+        Err("not in this build".into())
+    }
+    /// Make an invitation for the current room (`ttl` s, 0 = none; a friend for a personal one).
+    ///
+    /// # Errors
+    /// No room or no Beacon.
+    fn make_invite(&mut self, me: &Engine, ttl: u64, friend: Option<(&str, &str)>) -> Result<Invitation, String> {
+        let _ = (ttl, friend);
+        let room = me.current_room().ok_or("no room")?.to_string();
+        let name = me.rooms().iter().find(|r| r.room == room).map(|r| r.name.clone()).unwrap_or_default();
+        Ok(Invitation { name, room, onion: me.my_onion().to_string(), device: me.device_id().to_string(), ..Invitation::default() })
+    }
+    /// The invitations made here.
+    fn invites(&self) -> Vec<InviteRecord> {
+        vec![]
+    }
+    /// Withdraw one.
+    fn revoke_invite(&mut self, _id: &str) {}
 }
 
-/// Builds the engine on a backend: everything in memory (nothing sensitive hits the disk).
+/// Builds the engine on a backend: its storage (the vault) or memory.
 #[must_use]
 pub fn build_engine(b: &dyn Backend, name: &str) -> Engine {
-    let mut seed = [0u8; 32];
-    OsRng.fill_bytes(&mut seed);
+    let (kv, store, seed) = b.storage().unwrap_or_else(|| {
+        let mut seed = [0u8; 32];
+        OsRng.fill_bytes(&mut seed);
+        (Box::new(MemKv::default()), Arc::new(MemStore::default()), seed)
+    });
     let mut e = Engine::new(
         Deps {
             transport: Box::new(ArcTransport(b.transport())),
             signer: Box::new(Ed25519Signer::from_seed(&seed)),
-            kv: Box::new(MemKv::default()),
-            store: Arc::new(MemStore::default()),
+            kv,
+            store,
             mailbox: b.mailbox().map(|m| Box::new(ArcMailbox(m)) as _),
             clock: Box::new(SystemClock),
         },
@@ -311,7 +365,7 @@ impl Backend for DemoBackend {
         self.ann_admits(me, &inv.name)
     }
     fn sample_invitation(&self) -> Option<String> {
-        Some(codes::encode_invitation(&Invitation { name: "Ann's Garden".into(), room: "topic-Ann's Garden".into(), onion: "ann.onion".into() }))
+        Some(codes::encode_invitation(&Invitation { name: "Ann's Garden".into(), room: "topic-Ann's Garden".into(), onion: "ann.onion".into(), ..Invitation::default() }))
     }
     fn peer_texts(&self) -> Vec<String> {
         self.ann.messages().iter().filter(|m| !m.is_self && m.kind == MessageKind::Text).map(|m| m.content.clone()).collect()
@@ -321,62 +375,6 @@ impl Backend for DemoBackend {
     }
 }
 
-// ── real (stage 2/5) ─────────────────────────────────────────────────────────
+// ── real ─────────────────────────────────────────────────────────────────────
 
-/// The reason everything fails until the client link exists.
-pub const NOT_CONNECTED: &str = "not connected yet \u{2014} stage 2";
-
-/// The real backend: Tor client link to a Beacon, and the in-process Beacon. Not built yet:
-/// every action fails with [`NOT_CONNECTED`].
-#[derive(Default)]
-pub struct RealBackend;
-
-impl RealBackend {
-    /// Connect to Tor and the Beacon.
-    ///
-    /// # Errors
-    /// Always, for now: [`NOT_CONNECTED`].
-    pub fn connect() -> Result<Self, String> {
-        Err(NOT_CONNECTED.into())
-    }
-}
-
-struct NoTransport;
-
-impl Transport for NoTransport {
-    fn create_room(&self, _: &str) -> Result<OpenedRoom, String> {
-        Err(NOT_CONNECTED.into())
-    }
-    fn join_room(&self, _: &str, _: &[String]) -> Result<OpenedRoom, String> {
-        Err(NOT_CONNECTED.into())
-    }
-    fn set_peers(&self, _: &str, _: &[String]) {}
-    fn leave_room(&self, _: &str) {}
-    fn forget_onion(&self, _: &str) {}
-    fn send(&self, _: &str, _: &str) {}
-}
-
-impl Backend for RealBackend {
-    fn tor_state(&self) -> TorState {
-        TorState::Off
-    }
-    fn beacon_enabled(&self) -> bool {
-        false
-    }
-    fn set_beacon(&mut self, _on: bool) -> Result<BeaconInfo, String> {
-        Err(NOT_CONNECTED.into())
-    }
-    fn transport(&self) -> Arc<dyn Transport + Send + Sync> {
-        Arc::new(NoTransport)
-    }
-    fn mailbox(&self) -> Option<Arc<dyn Mailbox + Send + Sync>> {
-        None
-    }
-    fn via_beacon(&self) -> bool {
-        false
-    }
-    fn poll(&mut self, _me: &mut Engine) {}
-    fn redeem(&mut self, _me: &mut Engine, _inv: &Invitation) -> Result<(), String> {
-        Err(NOT_CONNECTED.into())
-    }
-}
+pub use crate::real::{Net, RealBackend, NO_BEACON};

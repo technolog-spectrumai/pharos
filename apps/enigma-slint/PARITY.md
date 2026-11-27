@@ -80,7 +80,7 @@ Status: **done** = works in the Slint app for real (not only `--demo`);
 | 6.2 | Images (send, show) | `AttachmentPreview.vue`, engine `send_image` | todo | n/a |
 | 6.3 | Voice notes (record / play) | `VoiceRecorderButton.vue`, `audio_*` | todo | n/a |
 | 6.4 | File transfer (offer / accept / progress) | `FilePanel.vue`, `useFileShare.ts`, `files.rs`, Files tab | todo | n/a |
-| 6.5 | Emoji picker | `EmojiPicker.vue` | todo | n/a |
+| 6.5 | Emoji picker | `EmojiPicker.vue` | n/a — by design: no emoji picker (user decision 2026-11-27); typed emoji still display | n/a |
 | 6.6 | Notifications (new message while away) | `ChatPanel.vue` (tauri notification) | todo | n/a |
 | 6.7 | Deep links `enigma://room/...` | `deeplink.ts`, `deeplink_take` | todo | todo |
 

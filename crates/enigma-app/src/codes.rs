@@ -64,14 +64,31 @@ pub fn check_code(a: &str, b: &str) -> String {
 }
 
 /// What an invitation code carries: the room and the inviter's onion to hand a key package to.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Invitation {
     /// Room name.
     pub name: String,
     /// Room slug.
     pub room: String,
-    /// Inviter's onion.
+    /// The inviter's Beacon onion (where the redemption goes).
     pub onion: String,
+    /// The inviter's device id (64 hex).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub device: String,
+    /// The invitation's id (the inviter's record).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Expiry (unix s), 0 = none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub expires: u64,
+    /// A personal invitation: the friend's device id it is for.
+    #[serde(default, rename = "for", skip_serializing_if = "String::is_empty")]
+    pub for_device: String,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// The code text.
@@ -180,7 +197,7 @@ mod tests {
 
     #[test]
     fn invitation_and_qr() {
-        let i = Invitation { name: "R".into(), room: "topic-R".into(), onion: "x.onion".into() };
+        let i = Invitation { name: "R".into(), room: "topic-R".into(), onion: "x.onion".into(), ..Invitation::default() };
         assert_eq!(decode_invitation(&encode_invitation(&i)), Some(i.clone()));
         assert_eq!(decode_invitation("nope"), None);
         let q = qr_lines(&encode_invitation(&i));
