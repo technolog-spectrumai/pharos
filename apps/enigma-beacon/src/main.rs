@@ -22,6 +22,15 @@ fn default_config() -> PathBuf {
     base.join("enigma-beacon").join("config.yaml")
 }
 
+/// Beacon runs on Linux only (desktop Linux or a Raspberry Pi). Elsewhere the
+/// binary builds, so the workspace does, but only says so.
+#[cfg(not(target_os = "linux"))]
+fn main() -> std::process::ExitCode {
+    eprintln!("enigma-beacon: Beacon runs on Linux only (desktop Linux or a Raspberry Pi)");
+    std::process::ExitCode::FAILURE
+}
+
+#[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let after = |flag: &[&str]| args.iter().position(|a| flag.contains(&a.as_str())).and_then(|i| args.get(i + 1)).cloned();

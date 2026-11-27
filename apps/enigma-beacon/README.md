@@ -1,7 +1,8 @@
 # Enigma Beacon
 
 A window to run and manage a Beacon (`beacon/`) on a desktop or a Raspberry Pi
-with a screen. Same look as `apps/enigma-slint` (theme and widgets copied).
+with a screen. **Linux only (desktop or Raspberry Pi)**: on other systems the
+binary builds (so the workspace does) but only says so and exits. Same look as `apps/enigma-slint` (theme and widgets copied).
 
     cargo run -p enigma-beacon                     # the Beacon of /etc/beacon/config.yaml, or ~/.config/enigma-beacon/
     cargo run -p enigma-beacon -- -c config.yaml   # another config (the `beacon` CLI reads the same file)

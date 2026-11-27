@@ -45,6 +45,15 @@ fn parse_args() -> Result<Args> {
 
 /// Errors are one line for the person at the terminal (or in the journal),
 /// whatever RUST_BACKTRACE says; the exit status says it failed.
+/// Beacon runs on Linux only (desktop Linux or a Raspberry Pi). Elsewhere the
+/// binary builds, so the workspace does, but only says so.
+#[cfg(not(target_os = "linux"))]
+fn main() -> std::process::ExitCode {
+    eprintln!("beacon: Beacon runs on Linux only (desktop Linux or a Raspberry Pi)");
+    std::process::ExitCode::FAILURE
+}
+
+#[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     match run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
@@ -55,6 +64,7 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn run() -> Result<()> {
     let a = parse_args()?;
     let load = || Config::load(&a.config);
