@@ -35,6 +35,7 @@ connection of any kind.
 
 - Who learns what: [SECURITY.md](SECURITY.md)
 - On the wire: [PROTOCOL.md](PROTOCOL.md) (Enigma27's mesh, and Beacon's API)
+- The technology stack: [technology.md](technology.md)
 - The client in depth: [apps/enigma/technology.md](apps/enigma/technology.md)
 
 ## Run, build and test
