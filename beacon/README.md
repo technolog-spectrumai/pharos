@@ -4,6 +4,10 @@ The optional Pharos helper: an onion-only mailbox (M3), directory (D5) and
 pairing drop-off, small enough for a Raspberry Pi. Formerly called Relay (and
 Proteus before that); renamed only, its protocol is unchanged.
 
+**Linux only (desktop or Raspberry Pi).** On other systems `beacon` builds (so
+the workspace does) but only says so and exits. To manage it with a window, see
+[../apps/enigma-beacon](../apps/enigma-beacon/README.md).
+
 **Beacon and Enigma27.** Beacon serves the older Pharos friend protocol
 ([../PROTOCOL.md](../PROTOCOL.md), Part B), which the friend client spoke.
 Enigma27, the client Pharos ships now, does not use it: it is kept for a later
