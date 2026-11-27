@@ -71,6 +71,13 @@ impl Store {
                token BLOB PRIMARY KEY, blob BLOB NOT NULL, expires INTEGER NOT NULL);
              CREATE INDEX IF NOT EXISTS message_expires ON message(expires);",
         )?;
+        // 8.D3: when a message may be handed out (added later; older rows are visible).
+        let has_visible: bool = db
+            .prepare("SELECT 1 FROM pragma_table_info('message') WHERE name='visible'")?
+            .exists([])?;
+        if !has_visible {
+            db.execute_batch("ALTER TABLE message ADD COLUMN visible INTEGER NOT NULL DEFAULT 0;")?;
+        }
         Ok(Store { db: Mutex::new(db), key, limits })
     }
 
@@ -127,9 +134,16 @@ impl Store {
         let seq: i64 = tx.query_row("SELECT next_seq FROM mailbox WHERE id=?1", [&hid[..]], |r| r.get(0))?;
         let sealed = self.key.seal(&format!("message/{}/{seq}", hexs(&hid)), blob);
         let expires = now + self.limits.message_ttl_days * DAY;
+        // 8.D3: a small random delay before it is handed out, so the moment a
+        // message arrives and the moment others fetch it do not line up exactly.
+        let delay = if self.limits.release_delay_secs == 0 {
+            0
+        } else {
+            rand_core::RngCore::next_u64(&mut rand_core::OsRng) % (self.limits.release_delay_secs + 1)
+        };
         tx.execute(
-            "INSERT INTO message (mailbox, seq, blob, expires) VALUES (?1, ?2, ?3, ?4)",
-            params![&hid[..], seq, sealed, expires as i64],
+            "INSERT INTO message (mailbox, seq, blob, expires, visible) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![&hid[..], seq, sealed, expires as i64, (now + delay) as i64],
         )?;
         tx.execute("UPDATE mailbox SET next_seq=next_seq+1 WHERE id=?1", [&hid[..]])?;
         tx.commit()?;
@@ -138,17 +152,28 @@ impl Store {
 
     /// Up to `max` messages after `after`, oldest first.
     pub fn fetch(&self, id: &[u8], token: &[u8], after: i64, max: u32) -> Result<Outcome<Vec<Fetched>>> {
+        self.fetch_at(id, token, after, max, u64::MAX)
+    }
+
+    /// As `fetch`, as of `now`: stops at the first message still held back (8.D3),
+    /// so a reader's cursor never skips past one.
+    pub fn fetch_at(&self, id: &[u8], token: &[u8], after: i64, max: u32, now: u64) -> Result<Outcome<Vec<Fetched>>> {
         let db = self.db();
         let hid = match self.mailbox_auth(&db, id, token, false)? {
             Ok(h) => h,
             Err(Refusal::NotFound) => return Ok(Ok(vec![])),
             Err(r) => return Ok(Err(r)),
         };
-        let mut st = db.prepare("SELECT seq, blob FROM message WHERE mailbox=?1 AND seq>?2 ORDER BY seq LIMIT ?3")?;
-        let rows = st.query_map(params![&hid[..], after, max], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+        let mut st = db.prepare("SELECT seq, blob, visible FROM message WHERE mailbox=?1 AND seq>?2 ORDER BY seq LIMIT ?3")?;
+        let rows = st.query_map(params![&hid[..], after, max], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?, r.get::<_, i64>(2)?))
+        })?;
         let mut out = vec![];
         for row in rows {
-            let (seq, sealed) = row?;
+            let (seq, sealed, visible) = row?;
+            if visible as u64 > now {
+                break;
+            }
             let blob = self.key.open(&format!("message/{}/{seq}", hexs(&hid)), &sealed)?;
             out.push(Fetched { seq, blob });
         }
@@ -257,6 +282,25 @@ impl Store {
             Ok((t.to_string(), db.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))?))
         };
         Ok([c("mailbox")?, c("message")?, c("record")?, c("pairing")?])
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+
+    #[test]
+    fn held_back_messages_are_not_handed_out_and_the_cursor_does_not_skip_them() {
+        let limits = Limits { release_delay_secs: 0, ..Limits::default() };
+        let s = Store::in_memory(crate::masterkey::MasterKey::from_bytes(&[7; 32]), limits).unwrap();
+        s.put_message(b"box", b"tok", b"one", 100).unwrap().unwrap();
+        // Hold the second back by hand, then post a third that is visible.
+        s.put_message(b"box", b"tok", b"two", 100).unwrap().unwrap();
+        s.db().execute("UPDATE message SET visible=500 WHERE seq=2", []).unwrap();
+        s.put_message(b"box", b"tok", b"three", 100).unwrap().unwrap();
+        let got = s.fetch_at(b"box", b"tok", 0, 10, 200).unwrap().unwrap();
+        assert_eq!(got.iter().map(|m| m.seq).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(s.fetch_at(b"box", b"tok", 1, 10, 600).unwrap().unwrap().len(), 2);
     }
 }
 

@@ -22,7 +22,7 @@ describe("beaconMailbox", () => {
 
   it("posts to this week's mailbox and reads both weeks, each frame once", async () => {
     const f = fake();
-    const mb = beaconMailbox({ invoke: f.invoke as any, beaconFor: () => "b.onion", identity: () => "me" });
+    const mb = beaconMailbox({ invoke: f.invoke as any, beaconFor: () => "b.onion", identity: () => "me", random: () => 1 });
     f.boxes.box1 = ["old"];
     await mb.post({ room: "r", frame: "new" });
     const first = await mb.fetch(0, "r");
@@ -30,5 +30,16 @@ describe("beaconMailbox", () => {
     expect(first.map((m) => JSON.parse(m.body))).toEqual([{ kind: "demio-room", room: "r", frame: "old" }, { kind: "demio-room", room: "r", frame: "new" }]);
     expect(first[1].id).toBeGreaterThan(first[0].id);
     expect(await mb.fetch(first[1].id, "r")).toEqual([]);
+  });
+});
+
+describe("beaconMailbox — dummy reads", () => {
+  it("sometimes also reads a random mailbox that is not ours", async () => {
+    const f = fake();
+    const mb = beaconMailbox({ invoke: f.invoke as any, beaconFor: () => "b.onion", identity: () => "me", random: () => 0 });
+    await mb.fetch(0, "r");
+    const ids = f.invoke.mock.calls.filter((c) => c[0] === "beacon_fetch").map((c) => (c[1] as any).id);
+    expect(ids.some((id: string) => /^[0-9a-f]{64}$/.test(id))).toBe(true);
+    expect(ids).toContain("box0");
   });
 });

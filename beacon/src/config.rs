@@ -34,6 +34,8 @@ pub struct Limits {
     pub max_mailboxes: u32,
     /// A message nobody fetched is dropped after this many days.
     pub message_ttl_days: u64,
+    /// A new message is handed out after a random 0..=this many seconds (8.D3).
+    pub release_delay_secs: u64,
     pub max_record_bytes: usize,
     pub record_ttl_days: u64,
     pub max_pairing_bytes: usize,
@@ -49,10 +51,11 @@ impl Default for Limits {
         Limits {
             // A sealed image (192 KiB, padded, MLS) fits; a text is far smaller.
             max_message_bytes: 256 * 1024,
-            max_messages_per_mailbox: 500,
-            max_mailbox_bytes: 8 * 1024 * 1024,
+            max_messages_per_mailbox: 2000,
+            max_mailbox_bytes: 32 * 1024 * 1024,
             max_mailboxes: 10_000,
             message_ttl_days: 14,
+            release_delay_secs: 10,
             max_record_bytes: 2048,
             record_ttl_days: 15,
             max_pairing_bytes: 48 * 1024,

@@ -272,11 +272,11 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   let place: MailboxPlace = freshPlace();
   let placeRoom = "";
   let unsent: Record<string, unknown>[] = [];
-  let mailboxTimer: ReturnType<typeof setInterval> | null = null;
+  let mailboxTimer: ReturnType<typeof setTimeout> | null = null;
   let kpTimer: ReturnType<typeof setInterval> | null = null;
   let catching: Promise<void> | null = null;
   function stopRoomTimers() {
-    if (mailboxTimer) { clearInterval(mailboxTimer); mailboxTimer = null; }
+    if (mailboxTimer) { clearTimeout(mailboxTimer); mailboxTimer = null; }
     if (kpTimer) { clearInterval(kpTimer); kpTimer = null; }
   }
   async function loadPlace(slug: string) {
@@ -339,8 +339,15 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   async function startMailbox(slug: string) {
     if (!mailbox) return;
     await loadPlace(slug);
-    if (mailboxTimer) clearInterval(mailboxTimer);
-    mailboxTimer = setInterval(() => { void catchUpMailbox(); }, mailbox.everyMs ?? 30_000);
+    if (mailboxTimer) clearTimeout(mailboxTimer);
+    // Exponential (Poisson) gaps around `everyMs`, not a fixed tick, so when this
+    // device reads its mailbox says little about when anything happened (8.D2).
+    const every = mailbox.everyMs ?? 30_000;
+    const next = () => {
+      const gap = Math.min(4 * every, Math.max(every / 6, -Math.log(1 - Math.random()) * every));
+      mailboxTimer = setTimeout(() => { void catchUpMailbox(); next(); }, gap);
+    };
+    next();
   }
 
   // ── Kept sessions (option `keepSession`): a room this device was let into stays open. ──

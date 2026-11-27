@@ -23,6 +23,14 @@ export interface BeaconMailboxDeps {
   beaconFor(room: string): string | undefined;
   /** Our MLS identity in the room. */
   identity(): string;
+  /** For tests: the coin for dummy reads. */
+  random?: () => number;
+}
+
+function randomHex(): string {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 export function beaconMailbox(deps: BeaconMailboxDeps): ChatMailbox {
@@ -55,6 +63,11 @@ export function beaconMailbox(deps: BeaconMailboxDeps): ChatMailbox {
     async fetch(after, room) {
       const onion = room && deps.beaconFor(room);
       if (!room || !onion) return [];
+      // A dummy read of a mailbox that does not exist, now and then (8.D2): Beacon
+      // cannot tell it from a real one, so the reads it sees are not all ours.
+      if ((deps.random ?? Math.random)() < 0.5) {
+        void deps.invoke("beacon_fetch", { onion, id: randomHex(), token: randomHex(), after: 0 }).catch(() => {});
+      }
       count = Math.max(count, after);
       const out: { id: number; body: string }[] = [];
       // Last week's mailbox first: what was posted just before the week turned.

@@ -171,7 +171,7 @@ struct After {
 async fn fetch(State(st): St, Path(id): Path<String>, Query(q): Query<After>, h: HeaderMap) -> Response {
     let (id, _) = tri!(gate(&st, &id));
     let tok = tri!(bearer(&h));
-    let msgs = out!(st.store.fetch(&id, &tok, q.after, FETCH_MAX));
+    let msgs = out!(st.store.fetch_at(&id, &tok, q.after, FETCH_MAX, (st.clock)()));
     let list: Vec<_> = msgs
         .into_iter()
         .map(|m| json!({ "seq": m.seq, "blob": data_encoding::BASE64.encode(&m.blob) }))
@@ -247,7 +247,7 @@ mod tests {
 
     #[tokio::test]
     async fn mailbox_over_http() {
-        let a = app(Limits::default());
+        let a = app(Limits { release_delay_secs: 0, ..Limits::default() });
         assert_eq!(call(&a, "GET", "/v1/health", None, b"").await.0, StatusCode::OK);
         let (c, b) = call(&a, "PUT", "/v1/mailbox/aa01", Some("beef"), b"sealed-1").await;
         assert_eq!((c, json(&b)["seq"].as_i64()), (StatusCode::CREATED, Some(1)));

@@ -131,6 +131,9 @@ struct Room {
     outbox: Mutex<HashMap<String, VecDeque<String>>>,
     /// Woken whenever a link comes or goes.
     changed: Notify,
+    /// When a real frame last went out (unix seconds), for cover traffic (7.4).
+    last_sent: std::sync::atomic::AtomicU64,
+    cover_task: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Room {
@@ -204,6 +207,9 @@ impl Room {
 
     fn stop(&self) {
         if let Some(t) = self.accept_task.lock().ok().and_then(|mut g| g.take()) {
+            t.abort();
+        }
+        if let Some(t) = self.cover_task.lock().ok().and_then(|mut g| g.take()) {
             t.abort();
         }
     }
@@ -502,6 +508,8 @@ pub async fn open_room(app: &AppHandle, state: &MeshState, name: String) -> Resu
         wanted: Mutex::new(HashMap::new()),
         outbox: Mutex::new(HashMap::new()),
         changed: Notify::new(),
+        last_sent: std::sync::atomic::AtomicU64::new(now_secs()),
+        cover_task: std::sync::Mutex::new(None),
     });
     {
         let mut guard = state.0.lock().await;
@@ -515,6 +523,10 @@ pub async fn open_room(app: &AppHandle, state: &MeshState, name: String) -> Resu
     let task = spawn_accept_loop(room.clone(), rend);
     if let Ok(mut g) = room.accept_task.lock() {
         *g = Some(task);
+    }
+    let cover = spawn_cover(Arc::downgrade(&room));
+    if let Ok(mut g) = room.cover_task.lock() {
+        *g = Some(cover);
     }
     emit_status(app, &slug, &[], None);
     Ok((slug, my_onion))
@@ -579,6 +591,7 @@ pub async fn cancel_join(state: &MeshState) {
 pub async fn broadcast(state: &MeshState, slug: &str, payload: String) -> Result<()> {
     let payload = pad(payload);
     let room = room_of(state, slug).await.ok_or_else(|| anyhow!("no such room"))?;
+    room.last_sent.store(now_secs(), std::sync::atomic::Ordering::Relaxed);
     let targets: Vec<(String, u64, Writer)> =
         room.links.lock().await.iter().map(|(p, l)| (p.clone(), l.seq, l.write.clone())).collect();
     let linked: std::collections::HashSet<String> = targets.iter().map(|t| t.0.clone()).collect();
@@ -704,10 +717,54 @@ fn spawn_dialer(room: Arc<Room>, peer: String, my_id: String) -> JoinHandle<()> 
     })
 }
 
+// ── cover traffic (7.4 / 8.D1) ───────────────────────────────────────────────
+// While a room is open, something goes to every linked member at a steady rate:
+// a real frame if there was one in the slot, otherwise a padded dummy the reader
+// drops. Someone watching a link then sees the same trickle whether or not anyone
+// is typing. The interval is longer on phones, for battery and data.
+
+const COVER: &str = r#"{"type":"cover"}"#;
+#[cfg(target_os = "android")]
+const COVER_EVERY: u64 = 90;
+#[cfg(not(target_os = "android"))]
+const COVER_EVERY: u64 = 30;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+pub(crate) fn is_cover(payload: &str) -> bool {
+    payload.trim_end() == COVER
+}
+
+fn spawn_cover(room: std::sync::Weak<Room>) -> JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            // ±20 % jitter, so the dummies are not a metronome either.
+            let jitter = (chacha20poly1305::aead::rand_core::RngCore::next_u64(&mut chacha20poly1305::aead::OsRng) % (COVER_EVERY * 2 / 5 + 1)) as i64 - (COVER_EVERY / 5) as i64;
+            tokio::time::sleep(Duration::from_secs((COVER_EVERY as i64 + jitter).max(1) as u64)).await;
+            let Some(room) = room.upgrade() else { break };
+            let quiet = now_secs().saturating_sub(room.last_sent.load(std::sync::atomic::Ordering::Relaxed));
+            if quiet + 1 < COVER_EVERY {
+                continue; // a real frame went out in this slot
+            }
+            let frame = pad(COVER.to_string());
+            let targets: Vec<Writer> = room.links.lock().await.values().map(|l| l.write.clone()).collect();
+            for w in targets {
+                let _ = write_frame_bounded(&mut *w.lock().await, &frame).await;
+            }
+            room.last_sent.store(now_secs(), std::sync::atomic::Ordering::Relaxed);
+        }
+    })
+}
+
 /// Read one link until it closes.
 fn spawn_reader(room: Arc<Room>, peer: String, seq: u64, mut rd: ReadHalf<DataStream>) -> JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         while let Ok(payload) = read_frame(&mut rd).await {
+            if is_cover(&payload) {
+                continue; // cover traffic (7.4): it only has to have been sent
+            }
             emit_message(&room.app, &room.slug, &payload);
         }
         // `drop_link` aborts this task, so run it from a fresh one.
@@ -894,6 +951,14 @@ mod tests {
         assert_eq!(room_for("a"), room_for("a"));
         assert_ne!(room_for("a"), room_for("b"));
         assert_eq!(nickname_for("a").unwrap().to_string(), nickname_for("a").unwrap().to_string());
+    }
+
+    #[test]
+    fn cover_frames_are_padded_like_the_smallest_message_and_recognised() {
+        let f = pad(COVER.to_string());
+        assert_eq!(f.len(), 512);
+        assert!(is_cover(&f));
+        assert!(!is_cover(&pad(r#"{"type":"mls_app","ciphertext":"x"}"#.to_string())));
     }
 
     #[test]
