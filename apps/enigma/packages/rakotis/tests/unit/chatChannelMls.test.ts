@@ -388,12 +388,39 @@ describe("forceResetMls", () => {
     const ch = await ready();
     await ch.forceResetMls();
     const [request] = sent("mls_reset_request");
-    expect(request).toEqual({ type: "mls_reset_request", device_id: "alice", reset_id: expect.any(String) });
+    expect(request).toEqual({ type: "mls_reset_request", device_id: "alice", reset_id: expect.any(String), ts: expect.any(Number) });
     expect(ch.mlsStatus.value).toBe("key_exchange");
 
     crypto.clearState.mockClear();
     await deliver({ ...request, device_id: "bob" });
     expect(crypto.clearState).not.toHaveBeenCalled();
+  });
+
+  it("with resetAuth, obeys only a fresh reset signed by a current member", async () => {
+    const verify = vi.fn(async (id: string, _r: string, _rid: string, _ts: number, sig: string) => sig === `sig-${id}`);
+    const resetAuth = { sign: vi.fn(async () => "sig-alice"), verify };
+    const ch = await ready("alice", { resetAuth });
+    crypto.members.mockResolvedValue(["alice", "bob"]);
+    crypto.clearState.mockClear();
+    const now = Date.now();
+    // Unsigned, from a stranger, stale, or with a bad signature: ignored.
+    await deliver({ type: "mls_reset_request", device_id: "bob", reset_id: "r1" });
+    await deliver({ type: "mls_reset_request", device_id: "eve", reset_id: "r2", ts: now, sig: "sig-eve" });
+    await deliver({ type: "mls_reset_request", device_id: "bob", reset_id: "r3", ts: now - 10 * 60_000, sig: "sig-bob" });
+    await deliver({ type: "mls_reset_request", device_id: "bob", reset_id: "r4", ts: now, sig: "forged" });
+    expect(crypto.clearState).not.toHaveBeenCalled();
+    // A member's, signed and fresh: obeyed.
+    await deliver({ type: "mls_reset_request", device_id: "bob", reset_id: "r5", ts: now, sig: "sig-bob" });
+    expect(crypto.clearState).toHaveBeenCalled();
+    expect(ch.mlsStatus.value).not.toBe("ready");
+  });
+
+  it("with resetAuth, signs its own reset request", async () => {
+    const resetAuth = { sign: vi.fn(async () => "the-sig"), verify: vi.fn(async () => true) };
+    const ch = await ready("alice", { resetAuth });
+    await ch.forceResetMls();
+    expect(sent("mls_reset_request")[0]).toMatchObject({ device_id: "alice", sig: "the-sig" });
+    expect(resetAuth.sign).toHaveBeenCalledWith(ROOM, expect.any(String), expect.any(Number));
   });
 
   it("says so when no key package can be built", async () => {

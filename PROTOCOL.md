@@ -45,12 +45,18 @@ stream by `kind`:
 Hello { name: String (display name; rooms only, may be empty),
         peer_id: String (a random per-profile id),
         kind?: "room" | "redeem" | "file"   (absent = "room"),
-        onion?: String (the dialler's own onion for this room; rooms only) }
-Ready { ok: true }
+        onion?: String (the dialler's own onion for this room; rooms only),
+        device?: String (rooms: the dialler's device id = its MLS identity),
+        ts?: u64 (rooms: unix seconds),
+        sig?: String (rooms: hex Ed25519 by the device key over
+                      "enigma27-link\0" ‖ host onion ‖ "\0" ‖ dialler onion ‖ "\0" ‖ ts) }
+Ready { ok: bool }
 ```
 
 - **`room`** — a member's link. `onion` is required; a Hello without it, or
-  with the host's own, is dropped. From then on both ends write room frames
+  with the host's own, is dropped. The host answers `ok: false` and closes
+  unless `sig` is good, `ts` is within 15 minutes of its clock, and `device`
+  is in its MLS group for the room. From then on both ends write room frames
   (A3) in both directions.
 - **`redeem`** — an invitation redemption (A4).
 - **`file`** — one file download (A5).
@@ -73,7 +79,7 @@ wire format), base64 in the JSON.
 | `mls_commit` | `commit` (MLS commit) |
 | `mls_welcome` | `welcome`, `target` |
 | `mls_key_package` | `key_package`, `device_id`, `user` (refused by Enigma27: rooms admit only by invitation) |
-| `mls_reset_request` | `device_id`, `reset_id` |
+| `mls_reset_request` | `device_id`, `reset_id`, `ts` (ms), `sig` (hex Ed25519 by `device_id` over `enigma27-reset\0` ‖ room ‖ `\0` ‖ reset_id ‖ `\0` ‖ ts); obeyed only from a current member, within 5 minutes |
 
 Inside an `mls_app` ciphertext is JSON with its own `type`, a `msg_id` and
 `from: {id, name}` (the sender, hidden from everyone outside the group): `text`

@@ -34,7 +34,14 @@ function createChatStore() {
     beaconFor: (room) => p2p.p2pRooms.value.find((r) => r.room === room)?.beacon,
     identity: () => p2p.mlsIdentity.value,
   });
-  p2p = useChatChannel({ mailbox, beaconForNewRoom: () => myBeacon.value?.onion });
+  p2p = useChatChannel({
+    mailbox,
+    beaconForNewRoom: () => myBeacon.value?.onion,
+    resetAuth: {
+      sign: (room, resetId, ts) => tauriInvoke<string>("reset_sign", { room, resetId, ts }),
+      verify: (deviceId, room, resetId, ts, sig) => tauriInvoke<boolean>("reset_verify", { deviceId, room, resetId, ts, sig }),
+    },
+  });
   // P2P file transfer rides the p2p channel's MLS group (onSync/sendSync seam).
   // Created here (once, for the app's lifetime) so incoming offers are caught
   // even while the Files modal is closed.

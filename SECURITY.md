@@ -47,8 +47,8 @@ guard discovery; it does not hide you from your guard, nor from a global
 observer.
 
 **A member of a room** learns, for every other member: its onion for that
-room, its display name and picture, its MLS identity (the profile name) and,
-for an inviter, its device id; what it sends; and the timing and size of every
+room, its display name, and its device id (the Ed25519 public key that is
+also its MLS identity); what it sends; and the timing and size of every
 frame it receives. A member who has the room's MLS state can read the room
 until it is removed from the group. Members see each other's onions, not IPs.
 
@@ -98,21 +98,30 @@ Closed since the first cut (root [todo.md](todo.md), Stages 7 and 8):
   every slot (30 s, 90 s on Android, ±20 %): a real one, or a dummy the other
   side drops. When you type is hidden from someone watching a link; that the
   room is open is not.
-- **Member onions stay open.** Tor client authorisation is optional and on
-  Beacon only (8.A3); anyone with a member's onion can still reach it, and
-  is refused at the room handshake and by MLS.
+- **Member onions.** Anyone with a member's onion can still open a Tor
+  connection to it (Tor client authorisation is optional and on Beacon only,
+  8.A3), but is refused at the room handshake unless it is a signed member.
 
 And:
 
-- **Unauthenticated reset.** `mls_reset_request` is a plaintext frame that
-  makes a member throw away its MLS state for the room and start a new group
-  of one; anyone linked can send it, and the room's "reset encryption" button
-  sends it too. Since rooms refuse key packages from the mesh, a reset member
-  cannot get back in without a new invitation. Key packages from the mesh are
-  refused, and no plaintext message is ever shown.
-- **Self-asserted identities.** The MLS credential is the profile name; there
-  is no safety-number check. Group management (who removes a member who left)
-  is app convention, not enforced by MLS.
+- **Reset requests are signed.** `mls_reset_request` makes a member throw away
+  its MLS state for the room and start a new group of one. It is obeyed only
+  when signed by the device key of a current member of the group, and made
+  within five minutes; anything else is ignored. A member who resets still
+  needs a new invitation to get back in (rooms refuse key packages from the
+  mesh).
+- **Identities are device keys.** A member's MLS identity is its device id, the
+  Ed25519 public key it signs with. At redemption the inviter checks that the
+  key package names the same device that signed the challenge. Names are
+  self-chosen labels; Friends' 12-digit check code is the way to know a device
+  is the person you think. Group management (who removes a member who left) is
+  app convention, not enforced by MLS.
+- **Links only from members.** A member's onion accepts a room link only when
+  the dialler signs it (both onions and the time) with a device key that is in
+  the room's MLS group; anyone else is refused at the handshake and gets
+  nothing, not even padded frames. A newcomer who has just been let in may be
+  refused for a moment by members who have not yet processed the commit, and
+  is linked when they have.
 - **Invitations.** Without a Beacon the inviter must be online, with the room
   open. With one, the redemption waits at the room's Beacon (see Part 1b).
 - **One device per identity.** No multi-device sync.

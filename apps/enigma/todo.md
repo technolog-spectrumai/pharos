@@ -27,21 +27,17 @@ sender, cover traffic, mailboxes, invitations through Beacon) is the root
 
 ## Open
 
-- [ ] **The reset frame.** `mls_reset_request` is plaintext and unauthenticated:
-      anyone who reaches a member's onion can make it start a new group of one.
-      Authenticate it inside MLS, or remove it with "Reset encryption".
-      technology.md §9 item 4.
-- [ ] **The MLS identity is the profile name** (`CHAT_USER`, default `default`).
-      Two people who both use "default" collide in one room. Use the device id or
-      a random per-profile id.
-- [ ] **Links accept anyone.** An inbound link is taken on the onion its `Hello`
-      claims, so whoever knows a member's onion receives that member's (sealed,
-      padded) frames and can displace a member's link. technology.md §9 item 7.
-- [ ] **Key verification in rooms**: bind the MLS credential to the device key.
+- [x] **The reset frame** is signed by the sender's device key and obeyed only
+      from a current member, within five minutes (`resetAuth`, `reset_sign` /
+      `reset_verify`).
+- [x] **The MLS identity is the device id** (Ed25519 public key), not the
+      profile name; redemption checks the key package names the signing device.
+      Rooms made before 0.2.5 used the profile name and need a new invitation.
+- [x] **Links only from members.** A room `Hello` carries the dialler's device id,
+      the time and a signature over both onions; the listener links only a
+      current member of its MLS group (`link_is_genuine`).
 - [ ] Real-Tor run of the Beacon paths (root 8.E2).
-- [ ] Stale comments in code: `invite_ticket.rs`'s header still says
-      `FORMAT_V(0x01)`; `useInviteAdmit.ts` still says "no store-and-forward";
-      leftover `avatar_url` fields in rakotis messages.
+- [ ] Leftover `avatar_url` fields in rakotis messages (always empty).
 - [ ] Pins in old profiles (`map:pins`) have no way out of the vault; region
       files stay on disk (`profiles/<p>/maps/*.pmtiles`). Decide if an export is
       needed.

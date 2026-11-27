@@ -321,6 +321,40 @@ pub(crate) struct Hello {
     /// from the dialler's other links. Rooms only.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub onion: String,
+    /// Rooms: the dialler's device id (its MLS identity), the time, and its
+    /// signature over `link_message(listener, onion, ts)`. The listener links
+    /// only a current member of the room's group.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub device: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub ts: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sig: String,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+/// What a room link's Hello is signed over.
+pub(crate) fn link_message(listener: &str, dialler: &str, ts: u64) -> Vec<u8> {
+    format!("enigma27-link\0{listener}\0{dialler}\0{ts}").into_bytes()
+}
+
+/// How far a link's signed time may be from ours (clocks drift; Tor is slow).
+const LINK_SKEW_SECS: u64 = 15 * 60;
+
+/// Whether a room Hello comes from a current member: a good signature by its
+/// device key over this link, recent, and the device in the room's MLS group.
+fn link_is_genuine(app: &AppHandle, slug: &str, my_onion: &str, hello: &Hello) -> bool {
+    if hello.device.is_empty() || now_secs().abs_diff(hello.ts) > LINK_SKEW_SECS {
+        return false;
+    }
+    let Some(sig) = hex::decode(&hello.sig).ok().and_then(|b| <[u8; 64]>::try_from(b).ok()) else { return false };
+    if !crate::device::verify(&hello.device, &link_message(my_onion, &hello.onion, hello.ts), &sig) {
+        return false;
+    }
+    crate::is_room_member(app, slug, &hello.device)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -339,7 +373,10 @@ pub(crate) async fn dial(
     write_frame_bounded(&mut wr, &serde_json::to_string(hello)?).await?;
     match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut rd)).await {
         Ok(r) => {
-            r.map_err(|e| anyhow!("handshake failed: {e}"))?;
+            let text = r.map_err(|e| anyhow!("handshake failed: {e}"))?;
+            if serde_json::from_str::<Ready>(&text).map(|r| !r.ok).unwrap_or(false) {
+                return Err(anyhow!("{onion} refused the link (not a member there yet)"));
+            }
         }
         Err(_) => return Err(anyhow!("handshake timed out")),
     }
@@ -654,7 +691,15 @@ pub(crate) async fn dial_kind(
 ) -> Result<(ReadHalf<DataStream>, WriteHalf<DataStream>)> {
     ensure_started(app, state).await?;
     let client = client_of(state).await?;
-    let hello = Hello { name: String::new(), peer_id: load_or_create_peer_id(app)?, kind: Some(kind.to_string()), onion: String::new() };
+    let hello = Hello {
+        name: String::new(),
+        peer_id: load_or_create_peer_id(app)?,
+        kind: Some(kind.to_string()),
+        onion: String::new(),
+        device: String::new(),
+        ts: 0,
+        sig: String::new(),
+    };
     dial(&client, onion, &hello).await
 }
 
@@ -693,11 +738,19 @@ fn spawn_dialer(room: Arc<Room>, peer: String, my_id: String) -> JoinHandle<()> 
                 changed.await;
                 continue;
             }
+            let ts = now_secs();
+            let (device, sig) = match crate::device::load_or_create(&room.app) {
+                Ok(k) => (crate::device::id_of(&k), hex::encode(crate::device::sign(&k, &link_message(&peer, &room.my_onion, ts)))),
+                Err(_) => (String::new(), String::new()),
+            };
             let hello = Hello {
                 name: room.name.clone(),
                 peer_id: my_id.clone(),
                 kind: None,
                 onion: room.my_onion.clone(),
+                device,
+                ts,
+                sig,
             };
             match dial(&room.client, &peer, &hello).await {
                 Ok((rd, wr)) => {
@@ -793,7 +846,11 @@ where
                     },
                     _ => return,
                 };
-                if write_frame(&mut wr, &serde_json::to_string(&Ready { ok: true }).unwrap()).await.is_err() {
+                // A room link only from a current member (redeem and file
+                // carry their own proofs). Anyone else is told no and dropped.
+                let is_room = !matches!(hello.kind.as_deref(), Some("redeem") | Some("file"));
+                let ok = !is_room || link_is_genuine(&room.app, &room.slug, &room.my_onion, &hello);
+                if write_frame(&mut wr, &serde_json::to_string(&Ready { ok }).unwrap()).await.is_err() || !ok {
                     return;
                 }
                 match hello.kind.as_deref() {
@@ -954,6 +1011,17 @@ mod tests {
     }
 
     #[test]
+    fn a_link_signature_binds_both_onions_and_the_time() {
+        let k = ed25519_dalek::SigningKey::from_bytes(&[9; 32]);
+        let id = crate::device::id_of(&k);
+        let sig = crate::device::sign(&k, &link_message("me.onion", "you.onion", 100));
+        assert!(crate::device::verify(&id, &link_message("me.onion", "you.onion", 100), &sig));
+        assert!(!crate::device::verify(&id, &link_message("other.onion", "you.onion", 100), &sig), "not reusable at another member");
+        assert!(!crate::device::verify(&id, &link_message("me.onion", "x.onion", 100), &sig));
+        assert!(!crate::device::verify(&id, &link_message("me.onion", "you.onion", 101), &sig));
+    }
+
+    #[test]
     fn cover_frames_are_padded_like_the_smallest_message_and_recognised() {
         let f = pad(COVER.to_string());
         assert_eq!(f.len(), 512);
@@ -985,7 +1053,7 @@ mod tests {
 
     #[test]
     fn a_room_hello_carries_the_dialler_onion() {
-        let h = Hello { name: "a".into(), peer_id: "p".into(), kind: None, onion: "x.onion".into() };
+        let h = Hello { name: "a".into(), peer_id: "p".into(), kind: None, onion: "x.onion".into(), device: String::new(), ts: 0, sig: String::new() };
         let text = serde_json::to_string(&h).unwrap();
         assert_eq!(text, r#"{"name":"a","peer_id":"p","onion":"x.onion"}"#);
         assert_eq!(serde_json::from_str::<Hello>(&text).unwrap(), h);
@@ -993,7 +1061,7 @@ mod tests {
 
     #[test]
     fn a_redeem_hello_has_no_onion() {
-        let h = Hello { name: String::new(), peer_id: "p".into(), kind: Some("redeem".into()), onion: String::new() };
+        let h = Hello { name: String::new(), peer_id: "p".into(), kind: Some("redeem".into()), onion: String::new(), device: String::new(), ts: 0, sig: String::new() };
         assert_eq!(serde_json::to_string(&h).unwrap(), r#"{"name":"","peer_id":"p","kind":"redeem"}"#);
     }
 

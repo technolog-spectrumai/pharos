@@ -76,3 +76,42 @@ mod tests {
         assert_eq!(public_of("nothex"), None);
     }
 }
+
+/// What a "reset encryption" request is signed over: its own label, so the
+/// signature is good for nothing else.
+fn reset_message(room: &str, reset_id: &str, ts: u64) -> Vec<u8> {
+    format!("enigma27-reset\0{room}\0{reset_id}\0{ts}").into_bytes()
+}
+
+/// Sign a reset request with this device's key.
+#[tauri::command]
+pub fn reset_sign(app: AppHandle, room: String, reset_id: String, ts: u64) -> Result<String, String> {
+    let key = load_or_create(&app).map_err(|e| e.to_string())?;
+    Ok(sign(&key, &reset_message(&room, &reset_id, ts)).iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `sig` is `device_id`'s signature over this reset request.
+#[tauri::command]
+pub fn reset_verify(device_id: String, room: String, reset_id: String, ts: u64, sig: String) -> bool {
+    let Ok(bytes) = hex::decode(sig.trim()) else { return false };
+    let Ok(sig) = <[u8; 64]>::try_from(bytes) else { return false };
+    verify(&device_id, &reset_message(&room, &reset_id, ts), &sig)
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+
+    #[test]
+    fn a_reset_signature_binds_device_room_id_and_time() {
+        let k = SigningKey::from_bytes(&[3; 32]);
+        let id = id_of(&k);
+        let sig: String = sign(&k, &reset_message("r", "x", 5)).iter().map(|b| format!("{b:02x}")).collect();
+        assert!(reset_verify(id.clone(), "r".into(), "x".into(), 5, sig.clone()));
+        assert!(!reset_verify(id.clone(), "other".into(), "x".into(), 5, sig.clone()));
+        assert!(!reset_verify(id.clone(), "r".into(), "y".into(), 5, sig.clone()));
+        assert!(!reset_verify(id, "r".into(), "x".into(), 6, sig.clone()));
+        let other = id_of(&SigningKey::from_bytes(&[4; 32]));
+        assert!(!reset_verify(other, "r".into(), "x".into(), 5, sig));
+    }
+}

@@ -337,6 +337,28 @@ fn mls_step<T>(
     f(sessions.inner(), &VaultMls(app), enigmatite::mls::At { key: &key, room, identity })
 }
 
+/// The device id a key package's credential names, read with our session for
+/// `room` (our identity is our device id). Redemption checks it against the
+/// device id the redeemer signed with, so a holder cannot join under another name.
+pub(crate) fn key_package_identity(app: &AppHandle, room: &str, kp_b64: &str) -> Option<String> {
+    let config = app.state::<AppConfigState>();
+    let sessions = app.state::<Sessions>();
+    let me = device::id_of(&device::load_or_create(app).ok()?);
+    let kp = data_encoding::BASE64.decode(kp_b64.trim().as_bytes()).ok()?;
+    mls_step(app, &config, &sessions, room, &me, |s, st, at| s.key_package_identity(st, at, &kp)).ok()
+}
+
+/// Whether `device` is in our MLS group for `room` (mesh links are only for members).
+pub(crate) fn is_room_member(app: &AppHandle, room: &str, device: &str) -> bool {
+    let config = app.state::<AppConfigState>();
+    let sessions = app.state::<Sessions>();
+    let Ok(key) = device::load_or_create(app) else { return false };
+    let me = device::id_of(&key);
+    mls_step(app, &config, &sessions, room, &me, |s, st, at| s.members(st, at))
+        .map(|m| m.iter().any(|x| x == device))
+        .unwrap_or(false)
+}
+
 /// Minimal view of a legacy `mls_*.bin` (a serde_json `ExportedRotorState`) — just
 /// the two fields needed to key the record. Extra fields are ignored.
 #[derive(Deserialize)]
@@ -1178,6 +1200,8 @@ pub fn run() {
             mls_encrypt,
             mls_clear_state,
             mls_mailbox,
+            device::reset_sign,
+            device::reset_verify,
             beacon::beacon_post,
             beacon::beacon_fetch,
             beacon::beacon_discovery_key,

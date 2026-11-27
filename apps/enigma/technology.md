@@ -358,13 +358,13 @@ referenced from code; resolved items stay, struck through.
    crash; best-effort wipes.
 2. **No key verification of room members.** The MLS credential is a self-asserted
    string, and there is no safety number inside a room. Friends compare a 12-digit
-   check code when pairing, and invitations bind the redeemer to a device key, but
-   the MLS credential is not bound to the device key yet.
+   check code when pairing. The MLS credential is the device id (Ed25519 public
+   key), and redemption checks that the key package names the device that signed.
 3. **Advisory group management.** Who removes a leaver and who may add are app
    convention; OpenMLS here lets any member commit.
-4. **Unauthenticated reset frame.** `mls_reset_request` is plaintext. Anyone who can
-   reach a member's onion can send one, and that member starts a new group of one it
-   cannot leave without a new invitation. → *Authenticate it inside MLS or remove it.*
+4. ~~**Unauthenticated reset frame.**~~ Resolved: `mls_reset_request` carries `ts`
+   and `sig` (device key over `enigma27-reset\0room\0reset_id\0ts`) and is obeyed
+   only from a current member of the group, within five minutes.
 5. ~~**Pre-MLS plaintext window.**~~ Resolved: sending needs MLS `ready`; nothing in
    the clear is shown. The sender's name is now inside the ciphertext, but it is still
    self-chosen, not verified.
@@ -372,10 +372,11 @@ referenced from code; resolved items stay, struck through.
    cover traffic.~~ Resolved (§11, §12). What remains: someone linked to you sees that
    frames arrive and roughly how large; cover traffic hides when you are quiet, not
    bursts; Beacon sees post volume and times (see SECURITY.md).
-7. **Links accept anyone.** Member onions are not restricted: anyone who knows a
-   member's onion for a room can open a link, claim an onion in `Hello`, receive that
-   member's (encrypted, padded) frames and displace the real member's link. MLS keeps
-   the content shut. Restricted discovery exists only for Beacon (§17).
+7. ~~**Links accept anyone.**~~ Resolved: a room `Hello` carries `device`, `ts` and
+   `sig` (device key over `enigma27-link\0listener\0dialler\0ts`); the listener
+   answers `Ready{ok:false}` and closes unless the signature is good, the time within
+   15 minutes and the device in its MLS group. Anyone can still open a Tor connection
+   to a member's onion; restricted discovery exists only for Beacon (§17).
 8. **WebView / IPC surface.** `security.csp = null`; on Linux every WebView
    permission request is granted. → *Add a CSP and gate permissions.*
 9. ~~**Clearnet TLS.**~~ Gone. The one HTTP client is `beacon.rs`, plain HTTP/1.1
@@ -482,8 +483,7 @@ from your guard or a global observer.
 `tor_write_timeout_secs` (20 s), the handshake read by `tor_handshake_timeout_secs`
 (30 s). Port `network.onion_port` (9999) for every member.
 
-**Known limitations:** links are not authenticated below MLS (§9 item 7); a full mesh
-is for small rooms.
+**Links are for members only** (§9 item 7). A full mesh is for small rooms.
 
 ---
 
@@ -2392,8 +2392,6 @@ Key dependency versions in the Enigma Rust tree (check with the commands below):
 
 P0 before an external encryption audit:
 
-- Authenticate or drop `mls_reset_request`: today any connection to a member's
-  onion can make that member start a new group of one (§9 item 4).
 - Add a real Tauri Content Security Policy. `tauri.conf.json` has `"csp": null`.
 - Enforce passphrase minimum and policy in Rust, not only in UI.
 - Run a fresh dependency audit for Rust and npm.

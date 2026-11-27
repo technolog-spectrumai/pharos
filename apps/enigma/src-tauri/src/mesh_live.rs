@@ -110,7 +110,7 @@ async fn tor2_dialler() {
     // A fresh descriptor can take a while to be reachable: retry until DIAL_TIMEOUT.
     let dial_start = Instant::now();
     let (mut rd, mut wr) = loop {
-        match tokio::time::timeout(Duration::from_secs(90), dial(&c, &onion, &Hello { name: "tor2-room".into(), peer_id: "tor2-dialler".into(), kind: None, onion: "tor2-dialler.onion".into() })).await {
+        match tokio::time::timeout(Duration::from_secs(90), dial(&c, &onion, &Hello { name: "tor2-room".into(), peer_id: "tor2-dialler".into(), kind: None, onion: "tor2-dialler.onion".into(), device: String::new(), ts: 0, sig: String::new() })).await {
             Ok(Ok(s)) => break s,
             Ok(Err(e)) => log("dialler", &format!("not yet: {e}")),
             Err(_) => log("dialler", "not yet: dial timed out"),

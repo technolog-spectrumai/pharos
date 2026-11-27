@@ -173,6 +173,13 @@ export interface ChatChannelOptions {
   mayFound?: () => boolean;
   /** Offline delivery through a server's room mailbox (`mailbox.ts`, Demio's format). */
   mailbox?: ChatMailbox;
+  /** Signs and checks "reset encryption" requests. With it, a reset is obeyed
+   *  only when signed by a current member of the group and fresh; without it
+   *  (tests, demos) any reset request is obeyed. */
+  resetAuth?: {
+    sign(room: string, resetId: string, ts: number): Promise<string>;
+    verify(deviceId: string, room: string, resetId: string, ts: number, sig: string): Promise<boolean>;
+  };
   /** The Beacon a room created here uses (8.C2); none → the room is pure mesh. */
   beaconForNewRoom?: () => string | undefined;
   /** `#tags`, `@mentions` and the sender's device on messages. */
@@ -565,7 +572,7 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
               const onion = presenceById.get(id)?.onion;
               return !!onion && linkedOnions.value.includes(onion);
             });
-            return { id: rep, name: info?.name || user, avatar_url: info?.avatar || "", type: "human" as const, linked };
+            return { id: rep, name: info?.name || (/^[0-9a-f]{64}$/.test(user) ? `Member ${user.slice(0, 6)}` : user), avatar_url: info?.avatar || "", type: "human" as const, linked };
           })();
       if (leafIds.length > 1) {
         p.leafIds = [...leafIds];
@@ -750,6 +757,10 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     // send would otherwise read like a chat message.
     if (type === "mls_reset_request") {
       if ((data.device_id as string) === mlsIdentity.value) return;
+      if (options.resetAuth && !(await resetIsGenuine(data))) {
+        log("reset request refused: not signed by a current member, or stale");
+        return;
+      }
       const resetId = data.reset_id as string | undefined;
       if (resetId) {
         if (processedResetIds.has(resetId)) return;
@@ -1184,16 +1195,23 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
   }
 
   // ── identity / lifecycle ─────────────────────────────────────────────────────
+  /** The MLS identity is this device's id (its Ed25519 public key, hex): unique,
+   *  and what reset requests and mesh links are signed with. The profile name is
+   *  only a fallback for a transport without device keys (tests, demos). */
+  async function deviceIdentity(fallback: string): Promise<string> {
+    return (await chatTransport.deviceId().catch(() => null)) || fallback;
+  }
+
   async function syncRuntimeIdentity() {
     const runtime = await getRuntimeConfig();
-    mlsIdentity.value = runtime.identity;
+    mlsIdentity.value = await deviceIdentity(runtime.identity);
     // The display name is set by the app from the local offline profile; default
     // to the runtime identity until it does.
     if (currentUserName.value === "You") currentUserName.value = runtime.identity;
   }
 
   async function applyRuntimeProfile(runtime: AppRuntimeConfig) {
-    mlsIdentity.value = runtime.identity;
+    mlsIdentity.value = await deviceIdentity(runtime.identity);
     clearLocalChatState(`Runtime profile switched to ${runtime.profile}. Left all chats and reset MLS.`);
   }
 
@@ -1585,13 +1603,31 @@ export function useChatChannel(options: ChatChannelOptions = {}) {
     pushMessage({ id: msgId, type: "file_message", user: currentUserName.value, initials: initials(currentUserName.value), avatar_url: myAvatarOrNull(), content: caption, file: { name, size, data: dataB64 }, participant_type: "human", self: true, encrypted: true, timestamp: new Date(), ...threadFields(caption, mlsIdentity.value, true) }, mlsIdentity.value);
   }
 
+  /** A reset request is obeyed only from a current member, signed by its device
+   *  key, within five minutes of when it was made. */
+  async function resetIsGenuine(data: Record<string, unknown>): Promise<boolean> {
+    const room = currentRoom.value?.slug;
+    const { device_id: id, reset_id: rid, ts, sig } = data as { device_id?: unknown; reset_id?: unknown; ts?: unknown; sig?: unknown };
+    if (!room || typeof id !== "string" || typeof rid !== "string" || typeof ts !== "number" || typeof sig !== "string") return false;
+    if (Math.abs(Date.now() - ts) > 5 * 60_000) return false;
+    try {
+      const members = await cryptoService.members(room, mlsIdentity.value);
+      if (!members.includes(id)) return false;
+      return await options.resetAuth!.verify(id, room, rid, ts, sig);
+    } catch {
+      return false;
+    }
+  }
+
   async function forceResetMls(broadcast = true) {
     if (!currentRoom.value || !mlsIdentity.value) return;
     const room = currentRoom.value.slug;
     const identity = mlsIdentity.value;
     if (broadcast) {
       const resetId = nanoid();
-      send({ type: "mls_reset_request", device_id: mlsIdentity.value, reset_id: resetId });
+      const ts = Date.now();
+      const sig = options.resetAuth ? await options.resetAuth.sign(room, resetId, ts).catch(() => "") : "";
+      send({ type: "mls_reset_request", device_id: mlsIdentity.value, reset_id: resetId, ts, ...(sig ? { sig } : {}) });
       processedResetIds.add(resetId);
       setTimeout(() => processedResetIds.delete(resetId), 30000);
     }

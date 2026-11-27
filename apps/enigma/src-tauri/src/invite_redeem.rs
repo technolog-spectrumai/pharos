@@ -238,6 +238,13 @@ pub(crate) async fn decide(
         Err(e) => return ReplyFrame::refused(e.code()),
     };
 
+    // 2b. The key package must be the redeemer's own: its MLS credential is the
+    //     device id that signed the challenge.
+    if crate::key_package_identity(app, &record.room_slug, &req.key_package).as_deref() != Some(req.node_id.as_str()) {
+        let _ = invites::release(app, &req.invite_id);
+        return ReplyFrame::refused("INVITE_BAD_IDENTITY");
+    }
+
     // 3. Admission itself, performed by the frontend (see the module note).
     let request_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel::<AdmitAnswer>();
