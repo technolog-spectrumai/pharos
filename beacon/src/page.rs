@@ -409,3 +409,12 @@ mod tests {
         assert!((w + 1) / 2 <= lines.len() + 1 && lines.len() <= (w + 1) / 2 + 1);
     }
 }
+
+/// The QR modules of `text` (row-major, `true` dark), side `n`, without a border:
+/// for a UI drawing its own image.
+pub fn qr_modules(text: &str) -> Result<(usize, Vec<bool>)> {
+    let q = qr(text)?;
+    let n = q.size();
+    let v = (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).map(|(x, y)| q.get_module(x, y)).collect();
+    Ok((n as usize, v))
+}

@@ -137,6 +137,70 @@ impl RoomSt {
 struct State {
     sessions: HashMap<String, Session>,
     rooms: HashMap<String, RoomSt>,
+    /// Device → (first attached, last seen) this run, in Unix seconds.
+    seen: HashMap<String, (u64, u64)>,
+    events: VecDeque<RelayEvent>,
+    next_event: u64,
+}
+
+/// Events kept for a management UI.
+const EVENTS_CAP: usize = 500;
+
+/// What happened on a relay, for an operator (counts and ids only, never content).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelayEvent {
+    /// Increasing per relay.
+    pub seq: u64,
+    /// Unix seconds.
+    pub at: u64,
+    pub kind: EventKind,
+}
+
+/// The kinds of [`RelayEvent`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    ClientAttached { device: String },
+    ClientDetached { device: String },
+    /// A client hello refused: `why` is "bad signature" or "full".
+    ClientRefused { why: String },
+    LinkUp { room: String, peer: String },
+    LinkDown { room: String, peer: String },
+    /// A Beacon hello refused: "bad signature", "not listed" or "key changed".
+    BeaconRefused { peer: String, why: String },
+}
+
+/// One device as the relay sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClientStat {
+    pub device: String,
+    pub online: bool,
+    /// Unix seconds; now for an attached device; 0 if not seen this run.
+    pub last_seen: u64,
+    pub rooms: usize,
+    pub queued_frames: usize,
+    pub queued_bytes: usize,
+}
+
+/// One room (route id) as the relay sees it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoomStat {
+    pub room: String,
+    /// Local member devices (attached or not).
+    pub members: usize,
+    /// Local members attached now.
+    pub online: usize,
+    pub linked: Vec<String>,
+    /// Beacons its members listed.
+    pub wanted: usize,
+    pub queued_frames: usize,
+    pub queued_bytes: usize,
+}
+
+/// A snapshot of a relay.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RelayStats {
+    pub clients: Vec<ClientStat>,
+    pub rooms: Vec<RoomStat>,
 }
 
 /// A running Beacon relay.
@@ -221,6 +285,81 @@ impl Relay {
         v
     }
 
+    /// Who is attached, who was, every room and what is queued (no content).
+    #[must_use]
+    pub fn stats(&self) -> RelayStats {
+        let now = now_secs();
+        let st = self.lock();
+        let mut q: HashMap<(String, String), (usize, usize)> = HashMap::new();
+        for (room, r) in &st.rooms {
+            for dev in r.members.keys() {
+                let p = self.store.pending(dev, room, now);
+                q.insert((dev.clone(), room.clone()), (p.len(), p.iter().map(|(_, f)| f.len()).sum()));
+            }
+        }
+        let mut devices: HashSet<String> = st.sessions.keys().cloned().collect();
+        devices.extend(st.seen.keys().cloned());
+        for r in st.rooms.values() {
+            devices.extend(r.members.keys().cloned());
+        }
+        let mut clients: Vec<ClientStat> = devices
+            .into_iter()
+            .map(|d| {
+                let online = st.sessions.contains_key(&d);
+                let mine: Vec<&(usize, usize)> = q.iter().filter(|((dv, _), _)| *dv == d).map(|(_, v)| v).collect();
+                ClientStat {
+                    last_seen: if online { now } else { st.seen.get(&d).map_or(0, |s| s.1) },
+                    online,
+                    rooms: mine.len(),
+                    queued_frames: mine.iter().map(|v| v.0).sum(),
+                    queued_bytes: mine.iter().map(|v| v.1).sum(),
+                    device: d,
+                }
+            })
+            .collect();
+        clients.sort_by(|a, b| b.online.cmp(&a.online).then(b.last_seen.cmp(&a.last_seen)).then(a.device.cmp(&b.device)));
+        let mut rooms: Vec<RoomStat> = st
+            .rooms
+            .iter()
+            .map(|(room, r)| {
+                let mut linked: Vec<String> = r.links.keys().cloned().collect();
+                linked.sort();
+                let mine: Vec<&(usize, usize)> = q.iter().filter(|((_, rm), _)| rm == room).map(|(_, v)| v).collect();
+                RoomStat {
+                    room: room.clone(),
+                    members: r.members.len(),
+                    online: r.members.keys().filter(|d| st.sessions.contains_key(*d)).count(),
+                    linked,
+                    wanted: r.wanted().len(),
+                    queued_frames: mine.iter().map(|v| v.0).sum(),
+                    queued_bytes: mine.iter().map(|v| v.1).sum(),
+                }
+            })
+            .collect();
+        rooms.sort_by(|a, b| a.room.cmp(&b.room));
+        RelayStats { clients, rooms }
+    }
+
+    /// Events after `seq` (0 for all kept), oldest first.
+    #[must_use]
+    pub fn events_since(&self, seq: u64) -> Vec<RelayEvent> {
+        self.lock().events.iter().filter(|e| e.seq > seq).cloned().collect()
+    }
+
+    fn event(&self, kind: EventKind) {
+        let mut st = self.lock();
+        Self::push_event(&mut st, kind);
+    }
+
+    fn push_event(st: &mut State, kind: EventKind) {
+        st.next_event += 1;
+        let e = RelayEvent { seq: st.next_event, at: now_secs(), kind };
+        st.events.push_back(e);
+        if st.events.len() > EVENTS_CAP {
+            st.events.pop_front();
+        }
+    }
+
     /// Stops every link, dialer and session.
     pub fn stop(&self) {
         let mut st = self.lock();
@@ -276,9 +415,14 @@ impl Relay {
 
     async fn serve_client(self: Arc<Self>, device: String, ts: u64, sig: &str, rd: BoxRead, mut wr: BoxWrite) {
         let mut ok = self.client_ok(&device, ts, sig);
-        if ok {
-            let st = self.lock();
+        if !ok {
+            self.event(EventKind::ClientRefused { why: "bad signature".into() });
+        } else {
+            let mut st = self.lock();
             ok = st.sessions.contains_key(&device) || st.sessions.len() < self.cfg.max_clients;
+            if !ok {
+                Self::push_event(&mut st, EventKind::ClientRefused { why: "full".into() });
+            }
         }
         let ready = serde_json::to_string(&Ready { ok }).unwrap_or_default();
         if write_frame_bounded(&mut wr, &ready, self.cfg.link.write_timeout).await.is_err() || !ok {
@@ -290,6 +434,9 @@ impl Relay {
         let stale_rooms = {
             let mut st = self.lock();
             let old = st.sessions.insert(device.clone(), Session { id, tx: tx.clone(), rooms: HashSet::new(), kill: Some(kill_tx) });
+            let now = now_secs();
+            st.seen.entry(device.clone()).or_insert((now, now)).1 = now;
+            Self::push_event(&mut st, EventKind::ClientAttached { device: device.clone() });
             old.map(|mut o| {
                 if let Some(k) = o.kill.take() {
                     let _ = k.send(());
@@ -313,6 +460,9 @@ impl Relay {
         let rooms = {
             let mut st = self.lock();
             if st.sessions.get(&device).is_some_and(|s| s.id == id) {
+                let now = now_secs();
+                st.seen.entry(device.clone()).or_insert((now, now)).1 = now;
+                Self::push_event(&mut st, EventKind::ClientDetached { device: device.clone() });
                 st.sessions.remove(&device).map(|s| s.rooms).unwrap_or_default()
             } else {
                 HashSet::new()
@@ -541,6 +691,10 @@ impl Relay {
         // Only a Beacon one of our own clients in the room listed.
         let listed = signed && self.lock().rooms.get(&room).is_some_and(|r| r.wanted().contains(&onion));
         let ok = listed && self.store.pin(&onion, node);
+        if !ok {
+            let why = if !signed { "bad signature" } else if !listed { "not listed" } else { "key changed" };
+            self.event(EventKind::BeaconRefused { peer: onion.clone(), why: why.into() });
+        }
         let ready = serde_json::to_string(&Ready { ok }).unwrap_or_default();
         if write_frame_bounded(&mut wr, &ready, self.cfg.link.write_timeout).await.is_err() || !ok {
             return;
@@ -581,6 +735,7 @@ impl Relay {
             });
             r.links.insert(peer.to_string(), BLink { seq, dialed_by, tx, task });
             r.changed.notify_waiters();
+            Self::push_event(&mut st, EventKind::LinkUp { room: room.to_string(), peer: peer.to_string() });
         }
         self.status(room);
     }
@@ -592,6 +747,7 @@ impl Relay {
                 Some(r) if r.links.get(peer).is_some_and(|l| l.seq == seq) => {
                     r.links.remove(peer);
                     r.changed.notify_waiters();
+                    Self::push_event(&mut st, EventKind::LinkDown { room: room.to_string(), peer: peer.to_string() });
                     true
                 }
                 _ => false,

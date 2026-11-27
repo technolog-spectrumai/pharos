@@ -1,0 +1,523 @@
+// Enigma Beacon: run and manage a Beacon. State comes from Rust (src/lib.rs on
+// src/model.rs); the .slint files lay it out and raise callbacks.
+import { LineEdit, ScrollView, Switch, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { PrimaryButton, Card, BeaconToggle } from "widgets.slint";
+
+export { Theme }
+
+export enum Screen { overview, clients, rooms, settings, log }
+
+export struct ClientItem { id: string, online: bool, seen: string, rooms: int, queued: string }
+export struct RoomItem { id: string, online: int, members: int, linked: string, queued: string }
+export struct LogItem { time: string, text: string, kind: int }   // 0 info, 1 good, 2 bad
+
+component NavItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    in property <bool> active;
+    in property <string> badge;
+    callback clicked;
+    height: 44px;
+    border-radius: 8px;
+    background: active ? Theme.selected : ta.has-hover ? Theme.selected.with-alpha(0.5) : transparent;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 10px;
+        Text { text: root.icon; font-size: 16px; color: Theme.text; vertical-alignment: center; width: 22px; }
+        Text { text: root.text; font-size: Theme.font; font-weight: root.active ? 700 : 400; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        if root.badge != "" : Rectangle {
+            y: (parent.height - 20px) / 2;
+            height: 20px;
+            min-width: 24px;
+            border-radius: 10px;
+            background: Theme.accent;
+            Text { text: root.badge; color: white; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        }
+    }
+}
+
+component Dot inherits Rectangle {
+    in property <color> c;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background: c;
+}
+
+component SmallButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+    callback clicked;
+    height: 30px;
+    min-width: 64px;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: danger ? Theme.warn : Theme.border;
+    background: ta.pressed ? Theme.selected : ta.has-hover ? Theme.selected.with-alpha(0.6) : Theme.panel;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        Text { text: root.text; color: root.danger ? Theme.warn : Theme.text; font-size: Theme.font-small; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+    }
+}
+
+component KeyValue inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> value;
+    in property <color> value-color: Theme.text;
+    spacing: 12px;
+    Text { text: root.key; color: Theme.muted; font-size: Theme.font; width: 150px; vertical-alignment: center; }
+    Text { text: root.value; color: root.value-color; font-size: Theme.font; wrap: char-wrap; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; }
+}
+
+component Stat inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    background: Theme.panel;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: Theme.border;
+    min-height: 76px;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 2px;
+        alignment: center;
+        Text { text: root.value; color: Theme.text; font-size: 24px; font-weight: 800; }
+        Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; }
+    }
+}
+
+component TableHead inherits Rectangle {
+    in property <[string]> cols;
+    in property <[float]> weights;
+    height: 32px;
+    border-radius: 6px;
+    background: Theme.panel-2;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        for c[i] in root.cols : Text { text: c; color: Theme.muted; font-size: Theme.font-small; font-weight: 700; vertical-alignment: center; horizontal-stretch: root.weights[i]; preferred-width: 0px; min-width: 0px; }
+    }
+}
+
+component Cell inherits Text {
+    color: Theme.text;
+    font-size: Theme.font;
+    vertical-alignment: center;
+    overflow: elide;
+    preferred-width: 0px;
+    min-width: 0px;
+}
+
+component ScreenTitle inherits VerticalLayout {
+    in property <string> title;
+    in property <string> sub;
+    spacing: 2px;
+    Text { text: root.title; color: Theme.text; font-size: 22px; font-weight: 800; }
+    if root.sub != "" : Text { text: root.sub; color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; }
+}
+
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> value;
+    in property <string> unit;
+    spacing: 4px;
+    Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; }
+    HorizontalLayout {
+        spacing: 6px;
+        LineEdit { text <=> root.value; input-type: number; horizontal-stretch: 1; }
+        if root.unit != "" : Text { text: root.unit; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; width: 44px; }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Enigma Beacon";
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.bg;
+
+    // Screenshots and tests switch light/dark here (Theme.dark follows Palette.color-scheme).
+    public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
+
+    in-out property <Screen> screen: Screen.overview;
+    in property <bool> demo;
+
+    // Overview
+    in property <bool> on;                 // switch position (running or starting)
+    in property <string> phase: "off";
+    in property <int> phase-kind;          // 0 off, 1 working, 2 online, 3 error
+    in property <string> error;
+    in property <string> onion;
+    in property <string> code;
+    in property <image> qr;
+    in property <string> uptime;
+    in property <string> tor;
+    in property <int> clients-online;
+    in property <int> clients-total;
+    in property <int> rooms-total;
+    in property <int> links-total;
+    in property <string> toast;
+
+    // Clients
+    in property <[ClientItem]> clients;
+    in property <bool> restricted;
+    in property <bool> restart-needed;
+    in property <[string]> allowed;
+    in property <string> allow-message;
+    in property <bool> allow-error;
+    in-out property <string> allow-name;
+    in-out property <string> allow-key;
+
+    // Rooms
+    in property <[RoomItem]> rooms;
+
+    // Settings
+    in-out property <string> name;
+    in property <string> data-dir;
+    in property <string> key-status;
+    in property <bool> key-ok;
+    in property <string> disk-status;
+    in property <bool> disk-ok;
+    in property <bool> page-on;
+    in-out property <string> max-clients;
+    in-out property <string> queue-frames;
+    in-out property <string> queue-mb;
+    in-out property <string> queue-days;
+    in-out property <string> message-days;
+    in-out property <string> release-delay;
+    in-out property <string> backup-path;
+    in property <string> settings-message;
+    in property <bool> settings-error;
+
+    // Log
+    in property <[LogItem]> log;
+
+    callback toggle();
+    callback copied(string);
+    callback allow();
+    callback deny(string);
+    callback set-restricted(bool);
+    callback save-settings();
+    callback set-page(bool);
+    callback backup();
+    callback recheck();
+
+    // A hidden text field to put text on the clipboard.
+    clip := TextInput { visible: false; width: 0px; height: 0px; }
+    function copy(t: string, what: string) {
+        clip.text = t;
+        clip.select-all();
+        clip.copy();
+        root.copied(what);
+    }
+
+    HorizontalLayout {
+        // Sidebar ─────────────────────────────────────────────────────────
+        Rectangle {
+            width: 210px;
+            background: Theme.panel;
+            Rectangle { x: parent.width - 1px; width: 1px; background: Theme.border; }
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                Rectangle {
+                    height: 64px;
+                    border-radius: Theme.radius;
+                    background: Theme.header;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        spacing: 10px;
+                        Text { text: "⛯"; color: Theme.header-text; font-size: 26px; vertical-alignment: center; }
+                        VerticalLayout {
+                            alignment: center;
+                            Text { text: "Beacon"; color: Theme.header-text; font-size: Theme.font-large; font-weight: 800; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Dot { y: (parent.height - 10px) / 2; c: root.phase-kind == 2 ? #4fc1b0 : root.phase-kind == 1 ? #e0b55f : root.phase-kind == 3 ? #e07a5f : #8a93a6; }
+                                Text { text: root.phase; color: #f2f3f5c0; font-size: 11px; }
+                            }
+                        }
+                    }
+                }
+                Rectangle { height: 8px; }
+                NavItem { icon: "⏻"; text: "Overview"; active: root.screen == Screen.overview; clicked => { root.screen = Screen.overview; } }
+                NavItem { icon: "📱"; text: "Clients"; badge: root.clients-online > 0 ? root.clients-online : ""; active: root.screen == Screen.clients; clicked => { root.screen = Screen.clients; } }
+                NavItem { icon: "#"; text: "Rooms"; badge: root.rooms-total > 0 ? root.rooms-total : ""; active: root.screen == Screen.rooms; clicked => { root.screen = Screen.rooms; } }
+                NavItem { icon: "⚙"; text: "Settings"; active: root.screen == Screen.settings; clicked => { root.screen = Screen.settings; } }
+                NavItem { icon: "☰"; text: "Log"; active: root.screen == Screen.log; clicked => { root.screen = Screen.log; } }
+                Rectangle { vertical-stretch: 1; }
+                if root.demo : Text { text: "demo mode: fake clients and rooms"; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+                Text { text: "Counts and ids only: a Beacon never sees names or messages."; color: Theme.muted; font-size: 11px; wrap: word-wrap; }
+            }
+        }
+
+        // Content ─────────────────────────────────────────────────────────
+        Rectangle {
+            horizontal-stretch: 1;
+            // Overview
+            if root.screen == Screen.overview : sv1 := ScrollView {
+                VerticalLayout {
+                    width: sv1.visible-width;
+                    padding: 24px;
+                    spacing: 16px;
+                    ScreenTitle { title: "Overview"; sub: "Your Beacon keeps messages for your phones while they are away and links them to friends' Beacons, over Tor only."; }
+                    BeaconToggle {
+                        on: root.on;
+                        label-on: "Beacon is " + root.phase;
+                        label-off: "Start Beacon";
+                        detail: root.phase-kind == 3 ? root.error : root.on ? (root.uptime != "" ? "up " + root.uptime + " · tap to stop" : "tap to stop") : "off · tap to start serving on an onion service";
+                        toggled => { root.toggle(); }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Stat { value: root.clients-online + " / " + root.clients-total; label: "phones online / known"; horizontal-stretch: 1; }
+                        Stat { value: root.rooms-total; label: "rooms"; horizontal-stretch: 1; }
+                        Stat { value: root.links-total; label: "Beacon links"; horizontal-stretch: 1; }
+                        Stat { value: root.uptime == "" ? "—" : root.uptime; label: "uptime"; horizontal-stretch: 1; }
+                    }
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: stretch;
+                        Card {
+                            title: "Address";
+                            horizontal-stretch: 1;
+                            KeyValue { key: "State"; value: root.phase; value-color: root.phase-kind == 3 ? Theme.warn : root.phase-kind == 2 ? Theme.ok : Theme.text; }
+                            KeyValue { key: "Tor"; value: root.tor; }
+                            KeyValue { key: "Onion"; value: root.onion == "" ? "made when first served over Tor" : root.onion; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+                                SmallButton { text: "Copy address"; clicked => { root.copy(root.onion, "address"); } }
+                                SmallButton { text: "Copy code"; clicked => { root.copy(root.code, "code"); } }
+                            }
+                            if root.toast != "" : Text { text: root.toast; color: Theme.ok; font-size: Theme.font-small; }
+                            Text {
+                                text: "In Enigma: Settings → Beacon → scan the code, or paste it. Phones on the list (Clients) can find it when \"Only my phones\" is on.";
+                                color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap;
+                            }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                        Card {
+                            title: "Beacon code";
+                            width: 300px;
+                            if root.code != "" : Rectangle {
+                                height: 264px;
+                                background: white;
+                                border-radius: 8px;
+                                Image { source: root.qr; width: 256px; height: 256px; image-rendering: pixelated; }
+                            }
+                            if root.code == "" : Rectangle {
+                                height: 264px;
+                                background: Theme.panel-2;
+                                border-radius: 8px;
+                                Text { text: "No code yet: start the Beacon\nonce to make its address."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                            Text { text: root.code; color: Theme.muted; font-size: 10px; wrap: char-wrap; min-width: 0px; }
+                        }
+                    }
+                }
+            }
+
+            // Clients
+            if root.screen == Screen.clients : VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                ScreenTitle { title: "Clients"; sub: "Phones attached now and recently. Ids are each phone's device key; nothing here says who owns it."; }
+                TableHead { cols: ["Device", "State", "Last seen", "Rooms", "Queued for it"]; weights: [2, 1, 1.4, 0.8, 1.6]; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    min-height: 120px;
+                    if root.clients.length == 0 : Text { text: root.on ? "No phone has attached yet." : "The Beacon is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    ScrollView {
+                        VerticalLayout {
+                            alignment: start;
+                            for c in root.clients : Rectangle {
+                                height: 40px;
+                                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 8px;
+                                    Cell { text: c.id; horizontal-stretch: 2; font-family: "monospace"; }
+                                    HorizontalLayout {
+                                        horizontal-stretch: 1;
+                                        preferred-width: 0px;
+                                        spacing: 6px;
+                                        Dot { y: (parent.height - 10px) / 2; c: c.online ? Theme.ok : Theme.border; }
+                                        Cell { text: c.online ? "online" : "offline"; color: c.online ? Theme.ok : Theme.muted; horizontal-stretch: 1; }
+                                    }
+                                    Cell { text: c.seen; horizontal-stretch: 1.4; color: Theme.muted; }
+                                    Cell { text: c.rooms; horizontal-stretch: 0.8; }
+                                    Cell { text: c.queued; horizontal-stretch: 1.6; }
+                                }
+                            }
+                        }
+                    }
+                }
+                Card {
+                    title: "Only my phones";
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Text {
+                            text: "When on, only phones on this list can find the Beacon's onion (Tor client authorisation). Mailbox tokens still guard each mailbox when off.";
+                            color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; horizontal-stretch: 1;
+                        }
+                        Switch { text: root.restricted ? "on" : "off"; checked: root.restricted; toggled => { root.set-restricted(self.checked); } }
+                    }
+                    if root.restart-needed : Text { text: "Restart the Beacon for this to take effect."; color: Theme.warn; font-size: Theme.font-small; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for n in root.allowed : Rectangle {
+                            height: 30px;
+                            border-radius: 15px;
+                            background: Theme.selected;
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 4px;
+                                spacing: 6px;
+                                Text { text: n; color: Theme.text; font-size: Theme.font-small; vertical-alignment: center; }
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    y: 4px;
+                                    border-radius: 11px;
+                                    background: xa.has-hover ? Theme.warn : Theme.border;
+                                    xa := TouchArea { clicked => { root.deny(n); } }
+                                    Text { text: "×"; color: white; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                        if root.allowed.length == 0 : Text { text: "No phone on the list yet."; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        LineEdit { text <=> root.allow-name; placeholder-text: "name (anna-phone)"; width: 180px; }
+                        LineEdit { text <=> root.allow-key; placeholder-text: "descriptor:x25519:… (from the phone)"; horizontal-stretch: 1; }
+                        PrimaryButton { text: "Allow"; clicked => { root.allow(); } }
+                    }
+                    if root.allow-message != "" : Text { text: root.allow-message; color: root.allow-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
+                }
+            }
+
+            // Rooms
+            if root.screen == Screen.rooms : VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                ScreenTitle { title: "Rooms"; sub: "Route ids only: a Beacon never knows a room's name or who is in it beyond device keys."; }
+                TableHead { cols: ["Route", "Local online", "Linked Beacons", "Queued"]; weights: [2, 1.2, 2.2, 1.6]; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    if root.rooms.length == 0 : Text { text: root.on ? "No rooms yet." : "The Beacon is off."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    ScrollView {
+                        VerticalLayout {
+                            alignment: start;
+                            for r in root.rooms : Rectangle {
+                                height: 40px;
+                                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 8px;
+                                    Cell { text: r.id; horizontal-stretch: 2; font-family: "monospace"; }
+                                    Cell { text: r.online + " of " + r.members; horizontal-stretch: 1.2; }
+                                    Cell { text: r.linked; horizontal-stretch: 2.2; color: Theme.muted; }
+                                    Cell { text: r.queued; horizontal-stretch: 1.6; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Settings
+            if root.screen == Screen.settings : sv2 := ScrollView {
+                VerticalLayout {
+                    width: sv2.visible-width;
+                    padding: 24px;
+                    spacing: 16px;
+                    ScreenTitle { title: "Settings"; sub: "Saved to config.yaml; the beacon command line reads the same file. Limits are in force from the next start."; }
+                    Card {
+                        title: "This Beacon";
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text { text: "Name"; color: Theme.muted; width: 150px; vertical-alignment: center; }
+                            LineEdit { text <=> root.name; horizontal-stretch: 1; }
+                        }
+                        KeyValue { key: "Data folder"; value: root.data-dir; }
+                        KeyValue { key: "Master key"; value: root.key-status; value-color: root.key-ok ? Theme.ok : Theme.warn; }
+                        KeyValue { key: "Disk"; value: root.disk-status; value-color: root.disk-ok ? Theme.ok : Theme.warn; }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text { text: "Page with the code"; color: Theme.muted; width: 150px; vertical-alignment: center; }
+                            Switch { text: root.page-on ? "served at / on the onion" : "off"; checked: root.page-on; toggled => { root.set-page(self.checked); } }
+                        }
+                        HorizontalLayout { alignment: start; SmallButton { text: "Check again"; clicked => { root.recheck(); } } }
+                    }
+                    Card {
+                        title: "Limits";
+                        GridLayout {
+                            spacing: 12px;
+                            Row {
+                                Field { label: "Phones attached at once"; value <=> root.max-clients; }
+                                Field { label: "Queue per phone and room"; value <=> root.queue-frames; unit: "frames"; }
+                                Field { label: "Queue size per phone and room"; value <=> root.queue-mb; unit: "MB"; }
+                            }
+                            Row {
+                                Field { label: "Keep queued frames"; value <=> root.queue-days; unit: "days"; }
+                                Field { label: "Keep mailbox messages"; value <=> root.message-days; unit: "days"; }
+                                Field { label: "Release delay (random up to)"; value <=> root.release-delay; unit: "s"; }
+                            }
+                        }
+                        HorizontalLayout { alignment: start; PrimaryButton { text: "Save"; clicked => { root.save-settings(); } } }
+                    }
+                    Card {
+                        title: "Backup";
+                        Text { text: "A consistent copy of the database. Back up the master key separately: the copy is sealed with it."; color: Theme.muted; font-size: Theme.font-small; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            LineEdit { text <=> root.backup-path; horizontal-stretch: 1; }
+                            PrimaryButton { text: "Back up"; clicked => { root.backup(); } }
+                        }
+                    }
+                    if root.settings-message != "" : Text { text: root.settings-message; color: root.settings-error ? Theme.warn : Theme.ok; font-size: Theme.font-small; }
+                }
+            }
+
+            // Log
+            if root.screen == Screen.log : VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                ScreenTitle { title: "Log"; sub: "Recent events, newest first: start and stop, links, refusals with their reason."; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    background: Theme.panel;
+                    border-radius: Theme.radius;
+                    border-width: 1px;
+                    border-color: Theme.border;
+                    if root.log.length == 0 : Text { text: "Nothing yet."; color: Theme.muted; horizontal-alignment: center; vertical-alignment: center; }
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 8px;
+                            alignment: start;
+                            for l in root.log : HorizontalLayout {
+                                padding: 6px;
+                                spacing: 10px;
+                                Text { text: l.time; color: Theme.muted; font-size: Theme.font-small; width: 72px; font-family: "monospace"; vertical-alignment: center; }
+                                Dot { y: (parent.height - 10px) / 2; c: l.kind == 1 ? Theme.ok : l.kind == 2 ? Theme.warn : Theme.border; }
+                                Text { text: l.text; color: Theme.text; font-size: Theme.font; wrap: word-wrap; horizontal-stretch: 1; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
