@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use enigma_slint::headless::{self, Shot};
-use enigma_slint::{build, make_core, refresh, show_invite, AppWindow, Page, Theme};
+use enigma_slint::{build, make_core, refresh, show_invite, AppWindow, Page};
 use slint::ComponentHandle;
 
 fn save(dir: &Path, name: &str, s: &Shot) {
@@ -36,14 +36,14 @@ fn main() {
     };
     redraw(&ui);
     ui.set_draft("see you at the harbour".into());
-    ui.global::<Theme>().set_dark(false);
+    ui.invoke_set_dark(false);
     save(&out, "main-light", &headless::render(&ui, w, h, scale));
-    ui.global::<Theme>().set_dark(true);
+    ui.invoke_set_dark(true);
     save(&out, "main-dark", &headless::render(&ui, w, h, scale));
 
     core.borrow_mut().set_beacon(true);
     redraw(&ui);
-    ui.global::<Theme>().set_dark(false);
+    ui.invoke_set_dark(false);
     save(&out, "main-beacon-on", &headless::render(&ui, w, h, scale));
 
     ui.set_page(Page::Settings);
@@ -63,7 +63,7 @@ fn main() {
     ui.set_beacon_supported(false);
     ui.set_narrow(true);
     ui.set_show_chat(true);
-    ui.global::<Theme>().set_dark(true);
+    ui.invoke_set_dark(true);
     save(&out, "phone-chat-dark", &headless::render(&ui, 400, 820, scale));
     ui.hide().unwrap();
 }

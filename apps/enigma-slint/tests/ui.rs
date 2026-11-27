@@ -72,3 +72,23 @@ fn the_real_backend_shows_not_connected() {
     ui.invoke_toggle_beacon();
     assert!(ui.get_status().contains("stage 2"));
 }
+
+/// The composer's LineEdit follows dark mode (std widgets read Palette.color-scheme).
+#[test]
+fn text_fields_follow_dark_mode() {
+    headless::init();
+    let (ui, _core) = build(make_core(true, "Me")).unwrap();
+    // the composer field sits in the bottom bar; sample its middle, left of the send button
+    let px = |ui: &enigma_slint::AppWindow| {
+        let s = headless::render(ui, 800, 600, 1.0);
+        let i = ((600 - 30) * 800 + 600) * 3;
+        let p = &s.rgb[i..i + 3];
+        (u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2])) / 3
+    };
+    ui.invoke_set_dark(true);
+    let dark = px(&ui);
+    ui.invoke_set_dark(false);
+    let light = px(&ui);
+    assert!(dark < 80, "dark field luminance {dark}");
+    assert!(light > 180, "light field luminance {light}");
+}

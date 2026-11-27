@@ -1,6 +1,6 @@
 // Enigma in Slint: the main window. State comes from Rust (src/lib.rs, on enigma-app's
 // Core); the .slint files only lay it out and raise callbacks.
-import { LineEdit, ScrollView, ListView, ComboBox } from "std-widgets.slint";
+import { LineEdit, ScrollView, ListView, ComboBox, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Avatar, IconButton, PrimaryButton, Card, MenuItem, BeaconToggle } from "widgets.slint";
 
@@ -168,6 +168,9 @@ export component AppWindow inherits Window {
     min-height: 520px;
     background: Theme.bg;
     default-font-size: Theme.font;
+    // Light/dark for the whole app, std widgets included (LineEdit etc. follow
+    // Palette.color-scheme; Theme.dark is bound to it).
+    public function set-dark(on: bool) { Palette.color-scheme = on ? ColorScheme.dark : ColorScheme.light; }
 
     in property <Texts> t;
     in-out property <Page> page: Page.chat;
