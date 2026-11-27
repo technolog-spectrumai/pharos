@@ -8,9 +8,11 @@ with no company server in the middle.
   images, voice notes and files, always over Tor. It works on its own.
 - **Beacon** — optional (`beacon/`; until 2026-11 called Relay, earlier Proteus).
   The always-on helper you run yourself, sized for a Raspberry Pi (Rust, axum,
-  an onion service only). It serves the older Pharos friend protocol: a
-  mailbox, a directory and a pairing drop-off. It is kept for a later room
-  mailbox; Enigma27 works without it and does not talk to it yet.
+  an onion service only). Pair it once (Settings → Connections → Your Beacon)
+  and rooms you create keep their messages there for members who are offline,
+  and let people redeem an invitation while your phone is offline. It never
+  sees who is in a room or what they say, and a room never depends on it. It
+  also still serves the older Pharos friend protocol.
 
 Enigma27 replaced Pharos's earlier client (Friends 1:1 and Vesper's groups) on
 2026-11-22/23. It came from technolog-spectrumai/enigma, branch `dev_mvp1`
@@ -22,7 +24,10 @@ is in [todo.md](todo.md) (short) and [work.md](work.md) (with notes).
 Every member of a room hosts its own Tor onion service for that room and keeps
 a link to every other member: a mesh, with no captain and no member forwarding
 anyone else's traffic. You get into a room only by redeeming an invitation
-(a QR or text) against the inviter's onion while the inviter is online. Every
+(a QR or text) against the inviter's onion — or, when the inviter is offline
+and the room has a Beacon, by leaving the redemption at Beacon for the
+inviter's phone to answer later. Frames are padded to fixed sizes and links
+carry cover traffic while a room is open. Every
 message is sealed with MLS (RFC 9420) before it leaves the device, and
 everything the app keeps — keys, MLS state, history, Tor's own state — is
 encrypted at rest behind your passphrase. There is no direct (non-Tor)
@@ -57,8 +62,9 @@ Packages land in `dist/enigma/enigma/` and `dist/beacon/<arch>/`, each with a
 `com.spectrumaipl.enigma27`; its icon is the letter E
 (`scripts/letter_icon.py`).
 
-CI: `.github/workflows/ci.yml` (tests), `release.yml` (on a `v*` tag),
-`real-tor.yml` (`./test_tor2.sh`, by hand).
+CI: `.github/workflows/ci.yml` (tests), `release.yml` (on a `v*` tag: Linux,
+Windows, Android arm64, Beacon for the Pi), `real-tor.yml` (by hand:
+`./test_tor2.sh`, and Beacon served and probed over the real Tor network).
 
 ## What is here
 
@@ -71,7 +77,7 @@ CI: `.github/workflows/ci.yml` (tests), `release.yml` (on a `v*` tag),
 | `crates/gervasius` | Crypto primitives: Argon2id, XChaCha20-Poly1305, sealing to a key |
 | `crates/protasius` | The encrypted store each profile keeps |
 | `crates/enigmatite` | Enigma27's MLS sessions per room, and key-package admission |
-| `crates/pharos-{wire,seal,rendezvous,id,tor}` | The friend protocol, used by Beacon |
+| `crates/pharos-{wire,seal,rendezvous,id,tor}` | The friend protocol (Beacon), Beacon codes (`pharos-id`), and Tor hosting/dialling (`pharos-tor`) |
 | `packages/petalite` | Shared front end: theme, palette, i18n, Oya primitives |
 | `dromon/`, `build.sh`, `install.sh` | The build |
 | `tools/android/` | Android toolchain and build scripts |

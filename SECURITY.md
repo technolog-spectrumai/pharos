@@ -3,9 +3,9 @@
 Pharos is two things with two models. **Enigma27**, the client, runs small
 group chats over Tor: every member hosts an onion service per room and links
 to every other member, and every message is sealed with MLS. **Beacon**, the
-optional server, serves the older friend protocol (mailbox, directory,
-pairing drop-off); Enigma27 does not use it yet. Part 1 is Enigma27, part 2 is
-Beacon. The wire formats are in [PROTOCOL.md](PROTOCOL.md).
+optional server, keeps room mailboxes for Enigma27 and lets invitations wait
+while the inviter is offline (Part 1b); it also serves the older friend
+protocol (Part 2). The wire formats are in [PROTOCOL.md](PROTOCOL.md).
 
 # Part 1 — Enigma27
 
@@ -185,7 +185,8 @@ mesh works with Beacon unreachable (the engine queues posts and retries).
 Beacon, an optional server a friend runs (often on a Raspberry Pi), keeps
 messages for friends who are offline and helps friends find each other again.
 It serves the friend protocol (PROTOCOL.md, Part B), which the earlier friend
-client spoke; Enigma27 does not talk to it yet.
+client spoke; Enigma27 uses Beacon's mailboxes as Part 1b describes, not this
+protocol.
 
 **A friend** (in the friend protocol) learns what you send them, your name and
 device fingerprint, the Beacon address on your card, when you are online (their

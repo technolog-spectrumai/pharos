@@ -6,12 +6,15 @@ master_key: /etc/beacon/master.key
 # Browser) shows the code Enigma connects with; `beacon code` prints it too.
 name: Beacon
 page: true
+# Only phones added with `beacon allow NAME KEY` can find it (see README).
+restricted_discovery: false
 limits:
   max_message_bytes: 262144      # a sealed image (Enigma sends pictures up to 192 KiB)
-  max_messages_per_mailbox: 500
-  max_mailbox_bytes: 8388608     # per mailbox, across its messages
+  max_messages_per_mailbox: 2000
+  max_mailbox_bytes: 33554432    # per mailbox, across its messages
   max_mailboxes: 10000
   message_ttl_days: 14
+  release_delay_secs: 10         # a new message is handed out after a random 0..10 s
   max_record_bytes: 2048
   record_ttl_days: 15
   max_pairing_bytes: 49152

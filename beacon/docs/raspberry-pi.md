@@ -48,10 +48,11 @@ sudo -u beacon beacon code -c /etc/beacon/config.yaml               # the code, 
 sudo -u beacon beacon code -c /etc/beacon/config.yaml --png qr.png  # …and as an image
 ```
 
-In Enigma, open **Friends → ⚙ You and your Beacon**, scan the QR (camera
-button) or paste the code (a bare `.onion` address works too), and Save:
-Enigma checks it can reach Beacon first. The address then goes on the
-contact cards you show friends, so they know where your mailbox is.
+In Enigma, open ☰ **Settings → Connections → Your Beacon**, tap **Scan its
+code** and scan the QR, or paste the code and tap **Use**. Rooms you create
+from then on use this Beacon; their members learn it automatically, inside the
+encryption. To let only your own phones find Beacon, see "Only my phones" in
+[../README.md](../README.md).
 
 Set `name:` in the config to what the page and the code should call it
 (`Alice's Pi`); `page: false` stops serving the page (the API is unaffected).

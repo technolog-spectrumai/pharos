@@ -99,7 +99,9 @@ mod tests {
         let p = d.path().join("c.yaml");
         std::fs::write(&p, "").unwrap();
         let c = Config::load(&p).unwrap();
-        assert_eq!(c.limits.max_messages_per_mailbox, 500);
+        assert_eq!(c.limits.max_messages_per_mailbox, 2000);
+        assert!(!c.restricted_discovery, "only my phones is off by default");
+        assert_eq!(c.limits.release_delay_secs, 10);
         assert_eq!((c.name.as_str(), c.page), ("Beacon", true));
         std::fs::write(&p, "data_dir: /srv/p\nlimits:\n  message_ttl_days: 3\n").unwrap();
         let c = Config::load(&p).unwrap();

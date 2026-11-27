@@ -68,33 +68,43 @@ wire format), base64 in the JSON.
 
 | `type` | Carries |
 |---|---|
-| `mls_app` | `ciphertext` (an MLS application message), plus sender fields in the clear: `device_id` (the MLS identity), `user`, `sender_name`, `sender_avatar_url`, and for some messages `msg_id` |
+| `mls_app` | `ciphertext` (an MLS application message) and nothing else: sealed sender |
+| `cover` | nothing: a dummy, sent in any cover slot without a real frame and dropped by the reader |
 | `mls_commit` | `commit` (MLS commit) |
 | `mls_welcome` | `welcome`, `target` |
 | `mls_key_package` | `key_package`, `device_id`, `user` (refused by Enigma27: rooms admit only by invitation) |
 | `mls_reset_request` | `device_id`, `reset_id` |
 
-Inside an `mls_app` ciphertext is either a text message as it was typed
-(its `msg_id` then rides outside), or JSON with its own `type`: `image_message` (a JPEG data URL), `voice_message` (WAV), `presence`
-(`device_id`, `name`, `avatar`, `onion` — how members learn each other's
-onions), `leave`, `room_closed` (sent by the room's creator when it deletes the room), `file_offer` / `file_accept` (A5).
+Inside an `mls_app` ciphertext is JSON with its own `type`, a `msg_id` and
+`from: {id, name}` (the sender, hidden from everyone outside the group): `text`
+(`text`), `image_message` (a JPEG data URL), `voice_message` (WAV), `presence`
+(`device_id`, `name`, `onion`, and `beacon` if the room has one — how members
+learn each other's onions and the room's Beacon), `leave`, `room_closed` (sent
+by the room's creator when it deletes the room), `file_offer` / `file_accept`
+(A5). There are no pictures: each device draws a member's icon from the first
+letter of their name.
 
-Nothing is padded yet, and the sender fields of `mls_app` are outside the
-ciphertext (root [todo.md](todo.md), Stage 7.1 and 7.2).
+**Padding.** Every frame is padded with trailing spaces (JSON ignores them) to
+512 B, 2 KiB, 8 KiB, or the next multiple of 32 KiB, before it is written.
+
+**Cover traffic.** While a room is open each link gets a frame every 30 s
+(90 s on Android), ±20 %: a real one if one went out in that slot, otherwise
+`{"type":"cover"}` padded to 512 B.
 
 ## A4. Invitations
 
-An invitation is `base32-nopad-lowercase(0x4E ‖ 0x01 ‖ kind ‖ body)`:
+An invitation is `base32-nopad-lowercase(0x4E ‖ 0x02 ‖ kind ‖ body)` (format 2; format 1 had no `beacon` and is refused):
 
 ```
 kind 0x50 'P' → body = gervasius::seal_to(recipient_x25519, aad, postcard(InviteBody))
 kind 0x47 'G' → body = postcard(InviteBody)          (a cleartext bearer code)
-aad = [0x4E, 0x01, kind]
+aad = [0x4E, 0x02, kind]
 
 InviteBody { invite_id: [u8; 16], capability: [u8; 32],
              inviter: String (device id: Ed25519 public key, 64 hex digits),
              onion: String (the inviter's onion for the room; no IP),
-             issued_at: u64, expires_at: u64 (Unix ms; advisory) }
+             issued_at: u64, expires_at: u64 (Unix ms; advisory),
+             beacon: Option<String> (the room's Beacon onion, if any) }
 ```
 
 A personal invitation is sealed to the recipient's device id, through its
@@ -111,6 +121,41 @@ inviter  → redeemer : { v: 1, ok, code, welcome, room_name, peers: [every memb
 The inviter checks the signature, the record's state and expiry (its own
 clock), the recipient, and the proof, then adds the key package to the group
 and answers. A refusal carries only a code (`INVITE_*`).
+
+**Through Beacon** (when the inviter does not answer and the ticket names a
+Beacon). With `m = capability ‖ invite_id`:
+
+```
+request mailbox : id = BLAKE3-derive("enigma27 invite drop request id", m),
+                  token = BLAKE3-derive("enigma27 invite drop request token", m)
+reply mailbox   : the same with "reply" and m ‖ node_id (one per redeemer)
+seal            : XChaCha20-Poly1305, key = BLAKE3-derive("enigma27 invite drop key", m),
+                  aad = "request" | "reply"; base64(nonce24 ‖ ciphertext)
+redeemer → request mailbox : seal({ challenge: hex(32 random bytes, chosen by the redeemer),
+                                    req: the request frame above })
+inviter  → reply mailbox   : seal(the reply frame above)
+```
+
+The inviter's phone reads the request mailboxes of its open invitations every
+45–65 s and decides exactly as for a live redemption; the redeemer reads its
+reply mailbox every 20 s for up to 30 minutes.
+
+## A4b. Room mailboxes on Beacon
+
+A room with a Beacon also posts every frame (except `cover`) to its mailbox,
+with Beacon's mailbox API (Part B §5). For week `w = ⌊unix seconds / 604800⌋`:
+
+```
+secret = MLS exporter(label "enigma27/beacon/mailbox", context = w as u64 big-endian, 32 bytes)
+id     = hex(BLAKE3-derive("enigma27 beacon mailbox id", secret))
+token  = hex(BLAKE3-derive("enigma27 beacon mailbox token", secret))
+```
+
+The body is the frame's JSON text, nothing else. The id moves with every
+epoch and every week; readers read this week's and last week's mailbox at
+exponentially distributed times around 30 s, half of the time together with a
+read of a random id. Every request uses a fresh Tor circuit. A frame already
+seen (sent by us, or received over the mesh) is skipped.
 
 ## A5. Files
 
@@ -227,7 +272,7 @@ HTTP/1.1 over its onion. Ids and tokens are lower-case hex; a token goes in
 | `GET /v1/pairing/{token}` | – | → the reply once, then 404 |
 
 Errors: 400 bad id, 401 no token, 403 wrong token, 404, 409, 413 too large,
-429 rate limited, 507 full. Defaults: messages ≤ 256 KiB, 500 and 8 MiB per mailbox,
+429 rate limited, 507 full. Defaults: messages ≤ 256 KiB, 2000 and 32 MiB per mailbox,
 kept 14 days; records ≤ 2 KiB, 15 days; pairing replies ≤ 48 KiB, 7 days; 60
 requests per minute per id.
 
