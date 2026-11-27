@@ -8,6 +8,10 @@
 // no shared Tor state between the two instances; the only thing they share is
 // the rendezvous directory (TOR2_DIR) where the host writes its `.onion`.
 use super::*;
+use beacon_node::{arti_config, nickname_for, wait_onion_address, OnionServiceConfigBuilder};
+use futures_lite::StreamExt;
+use tor_cell::relaycell::msg::Connected;
+use tor_hsservice::handle_rend_requests;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -18,6 +22,20 @@ const WAIT_FOR_ONION: Duration = Duration::from_secs(600);
 
 fn rendezvous() -> PathBuf {
     PathBuf::from(std::env::var("TOR2_DIR").expect("TOR2_DIR: the shared rendezvous directory"))
+}
+
+/// The app's mesh constants, with this test's own directories.
+fn live_config(dir: &Path) -> MeshConfig {
+    MeshConfig {
+        onion_port: ONION_PORT,
+        max_frame: MAX_FRAME,
+        write_timeout: Duration::from_secs(crate::build_config::network::TOR_WRITE_TIMEOUT_SECS),
+        handshake_timeout: Duration::from_secs(crate::build_config::network::TOR_HANDSHAKE_TIMEOUT_SECS),
+        cover_every: COVER_EVERY,
+        state_dir: dir.join("dialler-state"),
+        cache_dir: dir.join("dialler-cache"),
+        nickname_prefix: "enigma".into(),
+    }
 }
 
 fn log(role: &str, msg: &str) {
@@ -54,7 +72,7 @@ async fn tor2_host() {
     }
     let dir = rendezvous();
     let c = client("host", &dir).await;
-    let nick = nickname_for(&format!("tor2-{}", std::process::id())).unwrap();
+    let nick = nickname_for("enigma", &format!("tor2-{}", std::process::id())).unwrap();
     let (service, rend) = c
         .launch_onion_service(OnionServiceConfigBuilder::default().nickname(nick).build().unwrap())
         .expect("launch onion service")
@@ -110,7 +128,7 @@ async fn tor2_dialler() {
     // A fresh descriptor can take a while to be reachable: retry until DIAL_TIMEOUT.
     let dial_start = Instant::now();
     let (mut rd, mut wr) = loop {
-        match tokio::time::timeout(Duration::from_secs(90), dial(&c, &onion, &Hello { name: "tor2-room".into(), peer_id: "tor2-dialler".into(), kind: None, onion: "tor2-dialler.onion".into(), device: String::new(), ts: 0, sig: String::new() })).await {
+        match tokio::time::timeout(Duration::from_secs(90), node_dial(&c, &live_config(&dir), &onion, &Hello { name: "tor2-room".into(), peer_id: "tor2-dialler".into(), kind: None, onion: "tor2-dialler.onion".into(), device: String::new(), ts: 0, sig: String::new() })).await {
             Ok(Ok(s)) => break s,
             Ok(Err(e)) => log("dialler", &format!("not yet: {e}")),
             Err(_) => log("dialler", "not yet: dial timed out"),

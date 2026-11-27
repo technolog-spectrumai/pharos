@@ -11,6 +11,7 @@ members = [
     "crates/pharos-seal",
     "crates/pharos-id",
     "crates/pharos-tor",
+    "crates/beacon-node",
     "beacon",
     "crates/enigmatite",
     "apps/enigma/src-tauri",

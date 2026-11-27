@@ -53,6 +53,8 @@ gervasius = { path = "../../../crates/gervasius" }
 zeroize = "1"
 hex = "0.4"
 pharos-id = { path = "../../../crates/pharos-id" }
+# The Tor mesh (rooms, links, framing, cover traffic); mesh.rs adapts it to Tauri.
+beacon-node = { path = "../../../crates/beacon-node" }
 cpal = "0.15"
 hound = "3"
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros", "fs", "io-util"] }
