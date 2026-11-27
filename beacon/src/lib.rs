@@ -7,6 +7,7 @@ pub mod diskcrypt;
 pub mod masterkey;
 pub mod page;
 pub mod relay_store;
+pub mod runner;
 pub mod store;
 
 use std::sync::Arc;

@@ -1,0 +1,44 @@
+[package]
+name = "enigma-beacon"
+version = "0.1.0"
+description = "Run and manage a Beacon from a desktop or a Raspberry Pi with a screen (Slint)."
+authors = ["SpectrumAI"]
+edition = "2021"
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "enigma_beacon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "enigma-beacon"
+path = "src/main.rs"
+
+[features]
+# A Raspberry Pi with a screen but no desktop: draw straight to the display with
+# KMS/DRM and read input with libinput (needs libudev, libinput, libgbm, libdrm at build).
+linuxkms = ["slint/backend-linuxkms-noseat", "slint/renderer-femtovg"]
+
+[dependencies]
+beacon = { path = "../../beacon" }
+beacon-node = { path = "../../crates/beacon-node" }
+pharos-tor = { path = "../../crates/pharos-tor" }
+slint = { version = "1.19", features = ["software-renderer-systemfonts"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+anyhow = "1"
+
+[build-dependencies]
+slint-build = "1.19"
+
+[dev-dependencies]
+enigma-client = { path = "../../crates/enigma-client" }
+enigma-core = { path = "../../crates/enigma-core" }
+tempfile = "3"
+png = "0.18"
+
+[[example]]
+name = "beacon-screens"
+path = "examples/screens.rs"

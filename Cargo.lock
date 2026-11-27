@@ -2953,6 +2953,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "enigma-beacon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beacon",
+ "beacon-node",
+ "enigma-client",
+ "enigma-core",
+ "pharos-tor",
+ "png 0.18.1",
+ "slint",
+ "slint-build",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "enigma-client"
 version = "0.1.0"
 dependencies = [

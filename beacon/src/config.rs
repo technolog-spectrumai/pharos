@@ -1,9 +1,9 @@
 //! `config.yaml`. Every field has a default, so an empty file is a valid config.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// Database, arti's state and cache.
@@ -24,7 +24,7 @@ pub struct Config {
     pub relay: RelayLimits,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct RelayLimits {
     /// Serve client links and mesh with other Beacons (on by default).
@@ -45,7 +45,7 @@ impl Default for RelayLimits {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Limits {
     /// Largest sealed message accepted into a mailbox, bytes.
@@ -138,6 +138,15 @@ mod tests {
 }
 
 impl Config {
+    /// Writes the config as YAML (every field, so the file shows what is in force).
+    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let text = serde_norway::to_string(self)?;
+        let tmp = path.with_extension("yaml.tmp");
+        std::fs::write(&tmp, format!("# Beacon config (written by enigma-beacon; `beacon` reads it too)\n{text}"))?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    }
+
     /// Where the allowed phones' keys live, one `<name>.auth` each.
     pub fn clients_dir(&self) -> PathBuf {
         self.data_dir.join("clients")
