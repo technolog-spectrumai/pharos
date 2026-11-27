@@ -1,0 +1,30 @@
+ Enigma27   Tor: simulated (demo)  │  Beacon: off  │  Me
+╭ Rooms ───────────────────╮╭ Lighthouse ──────────────────────────────────────────────────────────╮
+│● Lighthouse              ││Lighthouse · 🔒 Encrypted · 1 linked · Direct · connected             │
+│  Harbour                 ││                                                                      │
+│                          ││ Ann  04:54                                                           │
+│                          ││ Got it: “Hello Ann, the console works.” Welcome                      │
+│                          ││ aboard.                                                              │
+│                          ││                                                                      │
+│                          ││                                                           You  04:54 │
+│                          ││                                           Are you on the Pi already? │
+│                          ││                                                                      │
+│                          ││ Ann  04:54                                                           │
+│                          ││ Got it: “Are you on the Pi already?” Loud and                        │
+│                          ││ clear, end to end.                                                   │
+│                          ││                                                                      │
+╰──────────────────────────╯│                                                           You  04:54 │
+╭ Friends ─────────────────╮│                                      The console works over SSH too. │
+│  Ann  c9571e             ││                                                                      │
+│                          ││ Ann  04:54                                                           │
+│                          ││ Got it: “The console works over SSH too.” The                        │
+│                          ││ lighthouse is on. Talk soon!                                         │
+│                          ││                                                                      │
+│                          ││╭ Message ───────────────────────────────────────────────────────────╮│
+│                          │││see you at the harbour█                                             ││
+│                          ││╰────────────────────────────────────────────────────────────────────╯│
+╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+┏━━━━━━━━━━━━━━━━━━━━━━━━┓ Beacon off: rooms go direct. Enable to relay and keep mail for
+┃     ⏻ ENABLE BEACON    ┃ your rooms while you are away (click or press b).
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛
+[n] New room  [j] Join  [i] Invite  [f] Friends  [b] Beacon  [q] Quit  Tab move focus  Enter send

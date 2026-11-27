@@ -15,6 +15,7 @@ members = [
     "beacon",
     "crates/enigmatite",
     "crates/enigma-core",
+    "apps/enigma-tui",
     "apps/enigma/src-tauri",
 ]
 exclude = [
