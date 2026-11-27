@@ -12,7 +12,8 @@ pub struct OpenedRoom {
     pub room: String,
     /// The name.
     pub name: String,
-    /// Our onion for it.
+    /// Our onion for it: from stage b2 (enigma-client) our home Beacon's onion, which
+    /// presence announces and other members pass to `set_peers`.
     pub onion: String,
 }
 

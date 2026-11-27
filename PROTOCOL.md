@@ -13,6 +13,8 @@ Two protocols live in this repository:
   `crates/pharos-wire`, `pharos-seal`, `pharos-rendezvous`, `pharos-id` and
   `beacon/src/api.rs`. Test vectors are in `pharos-rendezvous` (`test_vectors`).
   Its sections keep their numbers (§1–§5), as other documents link to them.
+- **Part C — stage b2**: apps attach to one Beacon over a signed client link
+  and only Beacons mesh. Part A's frames and invitations ride on it unchanged.
 
 # Part A — Enigma27's mesh
 
@@ -306,3 +308,142 @@ data `pharos/directory/v1`, nonce (24 bytes) ‖ ciphertext, of the JSON
 `{"beacon": onion | null, "at": unix_seconds}`. The owner files it under
 `directory id(owner, week)` and `week + 1` on its current and previous
 Beacon addresses. A friend reads this week's, then last week's.
+
+# Part C — Stage b2: apps attach to a Beacon, Beacons mesh
+
+From stage b2 apps no longer mesh. Each device attaches to **one** Beacon (its
+own, or a friend's) over a *client link*; per room, only Beacons keep links to
+each other (the *Beacon mesh*). MLS stays on the devices: every frame a Beacon
+carries is the same sealed room frame as in A3. The reference is the code:
+`crates/beacon-node/src/proto.rs` (hellos, ops), `relay.rs` (the Beacon side),
+`queue.rs` (what it keeps), `link.rs` (streams), `crates/enigma-client` (the
+device side), `beacon/src/lib.rs` (`route_conn`) and `beacon/src/relay_store.rs`.
+
+## C1. Where links arrive
+
+Client links and Beacon links go to the Beacon's existing onion, on the same
+virtual port as its HTTP API (80). A Beacon reads the first 4 bytes of every
+stream: a link starts with a frame length (A2: u32 little-endian, at most
+16 MiB, so the fourth byte is `0x00`); HTTP starts with an ASCII method
+(`GET `, `PUT `, `POST`), whose fourth byte never is. Links go to the relay,
+everything else to the HTTP API (Part B §5 and A4b, unchanged). A Beacon run by
+an app in the same process ("Enable Beacon") is attached to without Tor,
+through an in-process pipe, with the same bytes.
+
+Framing, padding (512 B / 2 KiB / 8 KiB / 32 KiB multiples) and cover (a frame
+per slot of 30 s ±20 %) are as in A2/A3, on both kinds of link. Cover is
+`{"op":"cover"}` on a client link and `{"type":"cover"}` on a Beacon link.
+
+## C2. Route ids
+
+A Beacon knows a room only by its **route id**:
+
+```
+route = hex(BLAKE3-derive_key("enigma27 b2 room route v1", slug))      slug as in A1
+```
+
+Every member derives it from the slug, so they agree; the slug (and so the
+room's name) never reaches a Beacon.
+
+## C3. Client link
+
+```
+device → Beacon : { "kind": "client", "device": 64-hex Ed25519 id,
+                    "ts": unix seconds,
+                    "sig": hex Ed25519 by the device over
+                           "enigma27-client\0" ‖ beacon onion ‖ "\0" ‖ ts }
+Beacon → device : { "ok": bool }                               (A2's Ready)
+```
+
+The Beacon answers `ok:false` and closes unless the signature is good for *its
+own* onion and `ts` is within 15 minutes of its clock (and fewer than
+`relay.max_clients` devices are attached). A second link of the same device
+replaces the first. Then both sides write JSON ops:
+
+| client → Beacon | |
+|---|---|
+| `{op:"join", room, peers:[onion]}` | be a member of `room` here; `peers` are the Beacons of the room's other members (replaces the last list; the Beacon's own onion is dropped). Delivers what was kept, then live. Idempotent. |
+| `{op:"close", room}` | stop live delivery on this link (the room is not open on the device); still a member, frames are kept |
+| `{op:"leave", room}` | no longer a member here: the queue is dropped (the room was deleted) |
+| `{op:"send", room, frame, n}` | a sealed frame; answered `{op:"sent", n}` (or `refused`) |
+| `{op:"ack", room, upto}` | frames up to `upto` arrived: the Beacon drops them |
+| `{op:"redeem", id, inviter_device, home, payload, n}` | C6 |
+| `{op:"redeem_answer", id, payload, n}` | C6 |
+
+| Beacon → client | |
+|---|---|
+| `{op:"frame", room, seq, frame}` | a frame; `seq` grows per (device, room) |
+| `{op:"status", room, linked:[onion], local}` | the room's Beacon links now, and how many other clients of this Beacon are in it and online |
+| `{op:"sent", n}` / `{op:"refused", n, why}` | the op `n` was taken / refused |
+| `{op:"redeem", id, from, home, payload}`, `{op:"redeem_answer", id, payload}` | C6 |
+
+The device keeps every op with an `n` until it is answered and sends it again
+after a reconnect (the Beacon drops a frame it has seen, C5); it ignores a
+`frame` whose `seq` it already had, and acks every frame. It redials with
+backoff (5 s doubling to 2 min) and on every new link re-sends `join` for its
+open rooms.
+
+## C4. Beacon mesh
+
+Per room a Beacon keeps one link to every Beacon listed in its clients' `peers`
+for that room, and none to any other:
+
+```
+Beacon → Beacon : { "kind": "beacon", "onion": dialler onion, "node": 64-hex Ed25519 node key,
+                    "room": route, "ts": unix seconds,
+                    "sig": hex Ed25519 by the node key over
+                           "enigma27-beacon\0" ‖ listener onion ‖ "\0" ‖ dialler onion ‖ "\0" ‖ room ‖ "\0" ‖ ts }
+listener        : { "ok": bool }
+```
+
+The listener refuses unless the signature and time are good, **one of its own
+clients in `room` listed `onion`**, and the node key is the one it first saw
+for that onion (pinned on first use). The node key is the Beacon's own (32
+random bytes, sealed with its master key in `node.key`). Both ends may dial;
+both keep the link dialled by the smaller onion (as A1). Redial: 5 s doubling
+to 2 min. A frame for a listed Beacon with no link waits in its outbox (256
+frames, oldest dropped first). On a Beacon link each frame is a room frame (A3).
+
+A Beacon must accept the newcomer's Beacon before any frame of the newcomer
+(its presence) can arrive, so the inviter's device lists the newcomer's Beacon
+at admission (`home` in C6; `Engine::admit_invited_via`).
+
+## C5. Routing and queues
+
+- A frame from a client goes to every other member of the room on this Beacon
+  and down every Beacon link of the room (or into its outbox).
+- A frame from a Beacon goes to members on this Beacon only: nothing is
+  forwarded twice, so there are no loops, whatever the shape of the mesh.
+- A frame already seen in the room is dropped (BLAKE3 of the frame, the last
+  4096 per room).
+- For every member (device, room) the Beacon keeps each frame until it is
+  acked: at most 2000 frames / 32 MiB (oldest dropped first) for 14 days
+  (`relay.*` in `config.yaml`). Memberships, queues, held messages, routes and
+  pins are in `relay.sqlite`, under keyed hashes and sealed with the master
+  key like the mailbox store; memberships survive a restart and are re-dialled.
+  The mailbox API of A4b / Part B is unchanged beside it.
+
+## C6. Invitations through the inviter's Beacon
+
+The invitation's `onion` (A4) is now the inviter's home Beacon. The redeemer
+attaches to that Beacon as a client (its own home link if it is the same
+Beacon, else a link of its own, kept until the answer comes, up to 30 minutes)
+and sends `{op:"redeem", id, inviter_device, home, payload, n}`: `id` is 16–64
+hex digits it chose, `home` its own home Beacon, `payload` opaque to the
+Beacon. The Beacon remembers `id → (redeemer, inviter)` for a day and hands
+`{op:"redeem", id, from, home, payload}` to the inviter's device, now or when it
+next attaches (`from` is the redeemer's id from its signed hello). Only the
+inviter may answer: `{op:"redeem_answer", id, payload, n}` goes to the
+redeemer, now or when it next attaches. The payloads carry A4's request and
+reply frames (the redeemer chooses the challenge, as for a drop, and may seal
+them with the drop key); every check of A4 (signature, capability proof, key
+package identity, state, expiry) stays between the two devices. The inviter
+lists `home` for the room at admission (C4).
+
+## C7. Presence
+
+A member's `onion` in presence (A3) is now its home Beacon's onion: the
+transport's `create_room` / `join_room` return it, and `set_peers` hands the
+other members' Beacons to the client link as the room's `peers`. Members on the
+same Beacon share an onion; the roster shows them linked while the Beacon
+reports other local members online (`local > 0`).

@@ -57,6 +57,7 @@ for ev in e.drain_events() { /* UI */ }
 | `cancel_join()` | abort an in-flight join |
 | `invite_key_package(scratch_room) -> b64` | redeemer: key package under a scratch room |
 | `admit_invited(room, kp_b64) -> Option<Grant>` | inviter: add member, broadcast commit, return `{welcome, room_name, peers}` (our onion first) |
+| `admit_invited_via(room, kp_b64, beacon)` | the same, and (b2) list the redeemer's home Beacon for the room at once |
 | `join_by_invite(&grant, scratch_room) -> bool` | redeemer: adopt scratch session, join from Welcome, link to peers |
 | `send_text`, `send_image(data_url)`, `send_voice(data_url)` | sealed messages (refused before `Ready`) |
 | `send_sync(kind, payload)` | control families (`file_offer`, `file_accept`, `sync_*`, ...) |

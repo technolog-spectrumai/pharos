@@ -189,6 +189,57 @@ contents in the clear; held-back frames are never skipped by a cursor; the
 mesh works with Beacon unreachable (the engine queues posts and retries).
 **Not yet:** a run over the real Tor network.
 
+## Stage b2: what a Beacon sees now
+
+From stage b2 (PROTOCOL.md Part C) devices attach to one Beacon and only
+Beacons mesh. Content is still MLS on the devices: a Beacon carries sealed
+frames and **cannot read any message, name, roster or presence**. What a Beacon
+now learns, that it did not before:
+
+- **Which devices it serves.** Every client link opens with a signed hello, so
+  the Beacon knows each attached device's id (its Ed25519 key, also its MLS
+  identity in rooms), and can tie together everything that device does.
+- **Which rooms, by route id.** It knows the route id of every room its clients
+  are in, and which of its clients share a room. The route id is a BLAKE3
+  derivation of the slug, not the name; but a slug comes from the room's name,
+  so someone who can guess a name can check it against a route id.
+- **When they are online**, to the second: when each device attaches and
+  leaves, and how many frames each sends and receives per room, with their
+  padded sizes. Cover traffic blurs idle periods on a link, not attachment.
+- **Which Beacons per room.** The Beacons its clients list for a room and the
+  Beacons it links to for it (their onions and node keys), so a room's Beacons
+  know each other. A friend's Beacon learns the same about you while you use it.
+- **Who redeemed whose invitation**: a relayed redemption names the inviter's
+  device and, from the redeemer's hello, the redeemer's device and its home
+  Beacon. The payload stays opaque, and every check (signature, capability
+  proof, key package identity) is still made between the two devices.
+
+**At rest.** Frames kept for offline devices (up to 2000 / 32 MiB per device and
+room, 14 days), memberships, held redemptions and pins are in `relay.sqlite`,
+under keyed hashes and sealed with the master key like the mailbox store: the
+file alone shows row counts and sizes only. A running Beacon holds them in the
+clear in memory.
+
+**Still not seen.** Phones' IP addresses (phones only dial out over Tor); any
+frame's content or sender inside the group (sealed sender, A3); room names.
+
+**Limits and known gaps (b2).**
+
+- A Beacon accepts a Beacon link for a room only if one of its own clients in
+  that room listed that onion; the node key is pinned on first use. The link
+  does not prove that the dialler *hosts* that onion: a Beacon that learns a
+  listed onion before the real one dials first could be pinned instead. The
+  frames it would get are sealed; a fix is to bind the node key to the onion.
+- Any device that reaches the onion may attach (there is no allow-list beyond
+  `restricted_discovery` and `relay.max_clients`), and may join any route id it
+  knows. It then receives that room's sealed frames, and can fill queues up to
+  their caps. Joining needs the route id, which only members (or name guessers)
+  know.
+- Frames in flight on a Beacon link that breaks are lost (not put back in the
+  outbox); the room mailbox (Part 1b) still covers a lost frame.
+- Same-name rooms share a route id on a Beacon (as they share a slug); MLS
+  drops the other group's frames, but they are delivered and queued.
+
 # Part 2 — Beacon and the friend protocol
 
 Beacon, an optional server a friend runs (often on a Raspberry Pi), keeps

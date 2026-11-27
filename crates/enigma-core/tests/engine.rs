@@ -120,6 +120,20 @@ fn room() -> String {
     fake_slug(ROOM)
 }
 
+#[test]
+fn admitting_through_a_beacon_lists_the_redeemers_beacon_at_once() {
+    let mut n = Net::new();
+    let a = n.add("alice", 1);
+    let b = n.add("bob", 2);
+    n.e(a).create_room(ROOM).unwrap();
+    let kp = n.e(b).invite_key_package("scratch").unwrap();
+    let grant = n.e(a).admit_invited_via(&room(), &kp, Some("bobsbeacon.onion")).unwrap();
+    assert_eq!(grant.peers[0], "alice.onion");
+    let last = n.hub.peers_calls().into_iter().rfind(|c| c.0 == "alice").unwrap();
+    assert_eq!(last.2, vec!["bobsbeacon.onion".to_string()], "listed before any presence");
+    assert!(n.e(a).rooms()[0].peers.contains(&"bobsbeacon.onion".to_string()));
+}
+
 /// alice creates, bob is invited.
 fn pair() -> (Net, usize, usize) {
     let mut n = Net::new();

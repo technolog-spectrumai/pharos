@@ -736,6 +736,27 @@ impl Engine {
     /// commit, returns the Welcome, the room's name and the onions to link to
     /// (`admitInvited`). `None`: the room is not open or not ready, or MLS refused.
     pub fn admit_invited(&mut self, room: &str, key_package_b64: &str) -> Option<Grant> {
+        self.admit_invited_via(room, key_package_b64, None)
+    }
+
+    /// [`Self::admit_invited`], and (stage b2) link at once to the redeemer's home Beacon
+    /// `beacon`: a Beacon only accepts the link of a Beacon one of its clients listed,
+    /// and the redeemer's presence cannot arrive before that link is up.
+    pub fn admit_invited_via(&mut self, room: &str, key_package_b64: &str, beacon: Option<&str>) -> Option<Grant> {
+        let grant = self.admit_invited_inner(room, key_package_b64)?;
+        if let Some(b) = beacon.map(str::trim).filter(|b| !b.is_empty() && *b != self.my_onion) {
+            let b = b.to_string();
+            self.update_entry(room, |e| {
+                if !e.peers.contains(&b) {
+                    e.peers.push(b);
+                }
+            });
+            self.flush_peers();
+        }
+        Some(grant)
+    }
+
+    fn admit_invited_inner(&mut self, room: &str, key_package_b64: &str) -> Option<Grant> {
         let r = self.room.clone().filter(|r| r.slug == room)?;
         if self.mls != MlsStatus::Ready {
             return None;
