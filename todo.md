@@ -80,5 +80,5 @@ The gap is kept small: Beacon only ever handles sealed, padded, steady traffic i
 - [x] 8.D1 Cover traffic on every mesh link while a room is open: a padded 512 B dummy in any slot without a real frame, every 30 s (90 s on Android) ±20 %; the reader drops it. Not posted to Beacon (dummies would fill mailboxes); Beacon gets dummy reads instead (8.D2)
 - [x] 8.D2 Poisson-timed fetches (exponential gaps around 30 s, clamped 5 s–2 min) and dummy fetches of random mailbox ids (half the time)
 - [x] 8.D3 Small random release delays on Beacon (0–10 s, `release_delay_secs`); the fetch stops at the first held-back message so cursors never skip. Mailbox caps raised to 2000 frames / 32 MiB
-- [ ] 8.E1 SECURITY.md: what Beacon still learns (volume, uptime) and does not (who, which room, what)
-- [ ] 8.E2 Tests: room works with Beacon down; never-overlapping members still exchange; Beacon's DB reveals no room/member link; real-Tor run
+- [x] 8.E1 SECURITY.md: what Beacon still learns (volume, uptime) and does not (who, which room, what) — Part 1b; stale gaps list rewritten
+- [ ] 8.E2 Tests: room works with Beacon down ✓ (rakotis sharedOptions); never-overlapping members still exchange ✓ ("a member away…"); Beacon's DB reveals no ids/tokens/contents ✓ (store test); **real-Tor run still to do** (needs a machine that reaches Tor)

@@ -88,17 +88,19 @@ clean stop.
 
 ## Limits and known gaps
 
-Open, in root [todo.md](todo.md) Stage 7:
+Closed since the first cut (root [todo.md](todo.md), Stages 7 and 8):
 
-- **No padding (7.1).** Frame sizes show what was sent (a text, an image, a
-  voice note) to every link and to a Tor relay that can count cells.
-- **Sender fields in the clear (7.2).** The MLS identity, display name,
-  picture and message id of `mls_app` frames are outside the ciphertext, so
-  anyone linked (see above) sees them.
-- **Timing (7.4).** No cover traffic: when you write, and when you are online,
-  shows to whoever is linked.
-- **No Tor client authorisation (part of 7.3).** Anyone with a member's onion
-  can fetch its descriptor and connect.
+- **Padding (7.1).** Every frame is padded with spaces to 512 B, 2 KiB, 8 KiB
+  or a multiple of 32 KiB before it is sent.
+- **Sealed sender (7.2).** The outer frame is only `{type:"mls_app", ciphertext}`;
+  who sent it, their name and the message id are inside the MLS ciphertext.
+- **Timing (7.4).** While a room is open, every link carries a padded frame in
+  every slot (30 s, 90 s on Android, ±20 %): a real one, or a dummy the other
+  side drops. When you type is hidden from someone watching a link; that the
+  room is open is not.
+- **Member onions stay open.** Tor client authorisation is optional and on
+  Beacon only (8.A3); anyone with a member's onion can still reach it, and
+  is refused at the room handshake and by MLS.
 
 And:
 
@@ -111,8 +113,8 @@ And:
 - **Self-asserted identities.** The MLS credential is the profile name; there
   is no safety-number check. Group management (who removes a member who left)
   is app convention, not enforced by MLS.
-- **The inviter must be online**, with the room open, for an invitation to be
-  redeemed. No store-and-forward.
+- **Invitations.** Without a Beacon the inviter must be online, with the room
+  open. With one, the redemption waits at the room's Beacon (see Part 1b).
 - **One device per identity.** No multi-device sync.
 - **Forward secrecy** is MLS's within an epoch; epochs advance only on adds and
   removes (no periodic self-update).
@@ -124,6 +126,59 @@ ignored; a room Hello without the dialler's onion is dropped; a key package
 from the mesh is ignored; a download without the right secret is refused, and
 a file whose size or BLAKE3 does not match is not kept; an invitation with a
 bad signature, proof, state, recipient or expiry is refused with a code.
+
+# Part 1b — Beacon for Enigma27 rooms (Stage 8)
+
+A room can have a Beacon (Settings → Connections → Your Beacon; rooms created
+after that use it). Every frame then goes over the mesh **and** into the room's
+mailbox on Beacon, so members who were never online at the same time still get
+each other's messages. Beacon is never needed: if it is down, the mesh carries on.
+
+**Beacon learns:** that a mailbox exists; how many frames arrive and when, and
+their padded size; when it is read (blurred, below); the volume and uptime of
+the whole server. **It does not learn** which room a mailbox belongs to, who
+is in it, who posted or read a frame, or anything inside a frame:
+
+- The mailbox id and token come from the MLS exporter for the current epoch
+  and the week number (8.B1). Only members at that epoch can compute them; they
+  change with every member added or removed and every week, so mailboxes of the
+  same room cannot be linked to each other by Beacon. Beacon stores keyed
+  hashes of both.
+- Posts carry only the sealed frame; the room's name never leaves the phone.
+- Every request to Beacon goes on its own Tor circuit (an isolated arti
+  client), so two posts, or a post and a read, cannot be tied to one phone.
+- Reads come at random (exponential gaps around 30 s), and half of them come
+  with a dummy read of a mailbox that does not exist.
+- Beacon holds each new frame back for a random 0–10 s before handing it out.
+- A frame arriving both ways opens once: frames we sent and frames from the
+  mesh are noted, so Beacon's copy is dropped before MLS sees it.
+
+**What is not hidden:** a room's total volume per week (one mailbox), a frame's
+send time in clear (`ts`, which Beacon knows anyway as the post time), and that
+some phone is posting. Dummy frames are not posted to Beacon (they would fill
+mailboxes); a mailbox keeps up to 2000 frames / 32 MiB for 14 days.
+
+**Invitations through Beacon (8.C4).** A ticket for a room with a Beacon names
+it. If the inviter's phone does not answer, the redemption is sealed with a key
+from the ticket's capability and left at Beacon; the inviter's phone answers
+it when it comes back, with the same checks as a live redemption. Only holders
+of the ticket can find those mailboxes or open what is in them. The challenge
+is chosen by the redeemer, since nobody is there to choose it live: a captured
+request replayed later still admits only the same device, and an invitation is
+spent after one admission. The newcomer waits up to 30 minutes.
+
+**Only my phones (8.A3, optional).** With `restricted_discovery: true`, only
+phones whose key was added with `beacon allow` can find Beacon's onion at all.
+Beacon cannot tell which allowed phone opened its descriptor. Adding a phone
+takes seconds to minutes; removing one is not immediate. A member without a key
+stays on the mesh.
+
+**Tested:** frames are padded and dummies recognised; mailbox ids differ per
+direction, redeemer and week; sealed invitation drops open only with the
+capability and the right label; Beacon's database holds no ids, tokens or
+contents in the clear; held-back frames are never skipped by a cursor; the
+mesh works with Beacon unreachable (the engine queues posts and retries).
+**Not yet:** a run over the real Tor network.
 
 # Part 2 — Beacon and the friend protocol
 

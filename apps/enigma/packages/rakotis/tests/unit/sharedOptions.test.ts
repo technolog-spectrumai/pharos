@@ -74,6 +74,26 @@ describe("the shared engine's options", () => {
     expect(texts(eve).some((t) => t.startsWith("hello"))).toBe(false);
   });
 
+  it("with the mailbox's server down, the room still talks over the mesh, and the queue drains later (8.E2)", async () => {
+    const alice = device("alice");
+    await open(alice);
+    const bob = device("bob");
+    await open(bob);
+    expect(bob.mlsStatus.value).toBe("ready");
+    mb.down = true;
+    const before = mb.bodies.length;
+    await alice.sendMessage("beacon is down");
+    await settle(1000);
+    expect(texts(bob)).toContain("beacon is down");
+    expect(mb.bodies.length).toBe(before);
+    mb.down = false;
+    await alice.sendMessage("and back");
+    await settle(1000);
+    expect(mb.bodies.slice(before).some((b) => b.includes("mls_app"))).toBe(true);
+    expect(mb.bodies.length - before).toBeGreaterThanOrEqual(2); // the queued one went too
+    expect(texts(bob).filter((t) => t === "beacon is down")).toHaveLength(1);
+  });
+
   it("a member away gets what came meanwhile from the mailbox, after a restart, with its group kept", async () => {
     const alice = device("alice");
     await open(alice);
